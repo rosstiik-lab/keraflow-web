@@ -240,10 +240,13 @@ const seedData = {
     { id: "price-9", name: "Демонтаж старої плитки", unit: "м²", price: 12 },
     { id: "price-10", name: "Різка плитки під кутом (45°)", unit: "м.п.", price: 7 },
   ],
+  clients: [
+    { id: "client-1", name: "Ivan Horvat", phone: "+385 91 234 5678", address: "Put Vodenica 12, Makarska", note: "" },
+  ],
   objects: [
     {
       id: "obj-1", name: "Villa Makarska", address: "Put Vodenica 12, Makarska",
-      client: "Ivan Horvat", status: "active",
+      clientId: "client-1", status: "active",
       rooms: [
         { id: "room-1", name: "Ванна", works: [
           { id: "w1", name: "Укладання плитки (підлога)", unit: "м²", qty: 12, price: 42, done: true },
@@ -290,6 +293,7 @@ function saveData() {
 /* ---------- Helpers ---------- */
 const uid = p => `${p}-${Date.now()}-${Math.floor(Math.random()*1e4)}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const fmtEUR = n => `${n.toFixed(2)} €`;
 
 function roomProgress(room) {
   if (!room.works.length) return 0;
@@ -302,6 +306,14 @@ function objectProgress(obj) {
 }
 function getObj() { return state.data.objects.find(o => o.id === state.selectedObjId) || null; }
 function getRoom() { const o = getObj(); return o?.rooms.find(r => r.id === state.selectedRoomId) || null; }
+function getClient(id) { return (state.data.clients || []).find(c => c.id === id) || null; }
+
+function roomSum(room) { return room.works.reduce((s,w) => s + w.qty*w.price, 0); }
+function roomSumDone(room) { return room.works.filter(w=>w.done).reduce((s,w) => s + w.qty*w.price, 0); }
+function roomSumLeft(room) { return room.works.filter(w=>!w.done).reduce((s,w) => s + w.qty*w.price, 0); }
+function objectSum(obj) { return obj.rooms.reduce((s,r) => s + roomSum(r), 0); }
+function objectSumDone(obj) { return obj.rooms.reduce((s,r) => s + roomSumDone(r), 0); }
+function objectSumLeft(obj) { return obj.rooms.reduce((s,r) => s + roomSumLeft(r), 0); }
 
 /* ---------- Actions ---------- */
 function setNav(key) { state.nav = key; state.selectedRoomId = null; render(); }
@@ -320,8 +332,8 @@ function deleteWork(workId) {
   const room = getRoom(); if (!room) return;
   room.works = room.works.filter(w => w.id !== workId); saveData(); render();
 }
-function createObject(name, address, client) {
-  const obj = { id: uid("obj"), name, address, client, status: "planned", rooms: [] };
+function createObject(name, address, clientId) {
+  const obj = { id: uid("obj"), name, address, clientId: clientId || null, status: "planned", rooms: [] };
   state.data.objects.push(obj);
   state.selectedObjId = obj.id; state.selectedRoomId = null;
   saveData(); closeModal();
@@ -365,6 +377,33 @@ function fillFromPrice(id) {
   document.getElementById("m-unit").value = p.unit;
   document.getElementById("m-price").value = p.price;
 }
+function setAddToObjectObj(objId) {
+  if (!state.modal) return;
+  state.modal.objId = objId; render();
+}
+function addPriceToObject(priceId, objId, roomId, qty) {
+  const price = (state.data.priceItems || []).find(p => p.id === priceId); if (!price) return;
+  const obj = state.data.objects.find(o => o.id === objId); if (!obj) return;
+  const room = obj.rooms.find(r => r.id === roomId); if (!room) return;
+  room.works.push({ id: uid("w"), name: price.name, unit: price.unit, qty: Number(qty)||1, price: price.price, done: false });
+  saveData(); closeModal();
+}
+
+/* ---------- Clients ---------- */
+function createClient(name, phone, address, note) {
+  state.data.clients = state.data.clients || [];
+  state.data.clients.push({ id: uid("client"), name, phone, address, note });
+  saveData(); closeModal();
+}
+function updateClient(id, name, phone, address, note) {
+  const c = getClient(id); if (!c) return;
+  c.name = name; c.phone = phone; c.address = address; c.note = note;
+  saveData(); closeModal();
+}
+function deleteClient(id) {
+  state.data.clients = (state.data.clients || []).filter(c => c.id !== id);
+  saveData(); render();
+}
 
 /* ---------- Render ---------- */
 function render() {
@@ -401,7 +440,7 @@ function renderPage() {
   switch (state.nav) {
     case "dashboard": return renderDashboard();
     case "objects":   return renderObjects();
-    case "clients":   return renderPlaceholder("👥","Клієнти","Модуль у розробці. Клієнти зараз прив'язані до об'єктів.");
+    case "clients":   return renderClients();
     case "acts":      return renderPlaceholder("📄","Акти виконаних робіт","Модуль у розробці. Акти генеруватимуться із завершених робіт.");
     case "price":     return renderPrice();
     case "settings":  return renderSettings();
@@ -485,6 +524,7 @@ function renderObjectDetail() {
 
   const p = objectProgress(obj);
   const st = OBJ_STATUS[obj.status];
+  const client = obj.clientId ? getClient(obj.clientId) : null;
   return `
     <div class="top-gradient"></div>
     <div class="banner-card">
@@ -492,7 +532,7 @@ function renderObjectDetail() {
         <span class="pill ${st.cls}" style="cursor:pointer" title="Натисніть, щоб змінити статус" onclick="cycleObjectStatus()">${st.label}</span>
         <div class="banner-title">${esc(obj.name)}</div>
         <div class="banner-addr">📍 ${esc(obj.address)}</div>
-        ${obj.client ? `<div class="banner-addr">👤 ${esc(obj.client)}</div>` : ""}
+        ${client ? `<div class="banner-addr">👤 ${esc(client.name)}${client.phone ? " · " + esc(client.phone) : ""}</div>` : ""}
       </div>
       <div class="ring-card">
         <div class="ring-wrap">
@@ -528,6 +568,35 @@ function renderObjectDetail() {
         }).join("") || ""}
       </div>
       ${obj.rooms.length===0 ? `<div class="empty-slot" style="margin-top:14px;">Створіть першу кімнату.</div>` : ""}
+    </div>
+
+    ${renderCalc(obj)}
+  `;
+}
+
+function renderCalc(obj) {
+  const total = objectSum(obj);
+  const done = objectSumDone(obj);
+  const left = objectSumLeft(obj);
+  return `
+    <div class="section-card">
+      <div class="section-head">
+        <div><div class="eyebrow">Кошторис</div><div class="section-title">Розрахунок</div></div>
+      </div>
+      <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
+        <div class="mini-stat"><div class="mini-stat-label">ВИКОНАНО</div><div class="mini-stat-val green mono">${fmtEUR(done)}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">ЗАЛИШИЛОСЬ</div><div class="mini-stat-val amber mono">${fmtEUR(left)}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ ПО ОБ'ЄКТУ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
+      </div>
+      ${obj.rooms.length ? obj.rooms.map(r => `
+        <div class="work-row" style="cursor:pointer;" onclick="selectRoom('${r.id}')">
+          <div style="flex:1">
+            <div class="w-name">${esc(r.name)}</div>
+            <div class="w-meta"><span class="mono">${r.works.length} робіт</span></div>
+          </div>
+          <div class="mono" style="font-weight:800;">${fmtEUR(roomSum(r))}</div>
+        </div>
+      `).join("") : `<div class="empty-slot" style="margin-top:14px;">Немає кімнат для розрахунку.</div>`}
     </div>
   `;
 }
@@ -579,8 +648,40 @@ function priceRowHtml(p) {
       <div class="w-name">${esc(p.name)}</div>
       <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
     </div>
+    <button class="w-del" title="Додати в об'єкт" onclick="openModal('addToObject','${p.id}')">📥</button>
     <button class="w-del" title="Редагувати" onclick="openModal('price','${p.id}')">✎</button>
     <button class="w-del" title="Видалити" onclick="deletePriceItem('${p.id}')">✕</button>
+  </div>`;
+}
+
+function renderClients() {
+  const clients = state.data.clients || [];
+  return `
+    <div class="eyebrow">Контакти</div>
+    <div class="h1" style="margin-bottom:18px;">Клієнти</div>
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="group-label" style="margin-top:0;">Замовники</div></div>
+        <div class="count-badge">${clients.length}</div>
+      </div>
+      ${clients.map(c => clientRowHtml(c)).join("") || `<div class="empty-slot">Ще немає жодного клієнта.</div>`}
+      <button class="dashed-btn" onclick="openModal('client')">+ Новий клієнт</button>
+    </div>
+  `;
+}
+
+function clientRowHtml(c) {
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${esc(c.name)}</div>
+      <div class="w-meta">
+        ${c.phone ? `<span class="mono">📞 ${esc(c.phone)}</span>` : ""}
+        ${c.address ? `<span class="mono">📍 ${esc(c.address)}</span>` : ""}
+      </div>
+      ${c.note ? `<div class="w-meta" style="margin-top:2px;">📝 ${esc(c.note)}</div>` : ""}
+    </div>
+    <button class="w-del" title="Редагувати" onclick="openModal('client','${c.id}')">✎</button>
+    <button class="w-del" title="Видалити" onclick="deleteClient('${c.id}')">✕</button>
   </div>`;
 }
 
@@ -613,7 +714,12 @@ function renderModal() {
     <h3>Новий об'єкт</h3>
     <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Villa Makarska"></div>
     <div class="field"><label>Адреса</label><input id="m-addr" placeholder="Вулиця, місто"></div>
-    <div class="field"><label>Замовник</label><input id="m-client" placeholder="Ім'я замовника"></div>
+    <div class="field"><label>Замовник</label>
+      <select id="m-clientid">
+        <option value="">— без замовника —</option>
+        ${(state.data.clients||[]).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitObject()">Створити</button>
@@ -658,11 +764,55 @@ function renderModal() {
       <button class="amber-btn" onclick="submitPrice('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Додати"}</button>
     </div>`;
   }
+  if (t === "client") {
+    const editing = state.modal.id ? getClient(state.modal.id) : null;
+    body = `
+    <h3>${editing ? "Редагувати клієнта" : "Новий клієнт"}</h3>
+    <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я замовника" value="${editing ? esc(editing.name) : ""}"></div>
+    <div class="field"><label>Телефон</label><input id="m-phone" placeholder="+385 ..." value="${editing ? esc(editing.phone||"") : ""}"></div>
+    <div class="field"><label>Адреса</label><input id="m-addr" placeholder="Вулиця, місто" value="${editing ? esc(editing.address||"") : ""}"></div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Додаткова інформація" value="${editing ? esc(editing.note||"") : ""}"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitClient('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Створити"}</button>
+    </div>`;
+  }
+  if (t === "addToObject") {
+    const price = (state.data.priceItems||[]).find(p => p.id === state.modal.id);
+    const objs = state.data.objects;
+    if (!price || objs.length === 0) {
+      body = `
+      <h3>Додати в об'єкт</h3>
+      <div class="empty-slot">Немає жодного об'єкта. Спочатку створіть об'єкт.</div>
+      <div class="modal-actions"><button class="ghost-btn" onclick="closeModal()">Закрити</button></div>`;
+    } else {
+      const selObj = objs.find(o => o.id === state.modal.objId) || objs[0];
+      const rooms = selObj.rooms || [];
+      body = `
+      <h3>Додати в об'єкт</h3>
+      <div class="field"><label>Робота</label><input value="${esc(price.name)}" disabled></div>
+      <div class="field"><label>Об'єкт</label>
+        <select id="m-obj" onchange="setAddToObjectObj(this.value)">
+          ${objs.map(o => `<option value="${o.id}" ${o.id===selObj.id?"selected":""}>${esc(o.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field"><label>Кімната</label>
+        <select id="m-room">
+          ${rooms.length ? rooms.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("") : `<option value="">— немає кімнат —</option>`}
+        </select>
+      </div>
+      <div class="field"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="1"></div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+        <button class="amber-btn" onclick="submitAddToObject('${price.id}')" ${rooms.length ? "" : "disabled"}>Додати</button>
+      </div>`;
+    }
+  }
   return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
 }
 
 function val(id) { return document.getElementById(id)?.value.trim() || ""; }
-function submitObject() { const n = val("m-name"); if (!n) return; createObject(n, val("m-addr")||"—", val("m-client")); }
+function submitObject() { const n = val("m-name"); if (!n) return; createObject(n, val("m-addr")||"—", val("m-clientid")); }
 function submitRoom() { const n = val("m-name"); if (!n) return; createRoom(n); }
 function submitWork() { const n = val("m-name"); if (!n) return; createWork(n, val("m-unit")||"шт", val("m-qty"), val("m-price")); }
 function submitPrice(id) {
@@ -671,11 +821,22 @@ function submitPrice(id) {
   const price = Number(val("m-price")) || 0;
   if (id) updatePriceItem(id, n, unit, price); else createPriceItem(n, unit, price);
 }
+function submitClient(id) {
+  const n = val("m-name"); if (!n) return;
+  const phone = val("m-phone"), addr = val("m-addr"), note = val("m-note");
+  if (id) updateClient(id, n, phone, addr, note); else createClient(n, phone, addr, note);
+}
+function submitAddToObject(priceId) {
+  const objId = val("m-obj"), roomId = val("m-room"), qty = val("m-qty");
+  if (!objId || !roomId) return;
+  addPriceToObject(priceId, objId, roomId, qty);
+}
 
 /* expose to inline handlers */
 Object.assign(window, { setNav, selectObject, selectRoom, setQuick, openModal, closeModal,
   toggleWork, deleteWork, cycleObjectStatus, submitObject, submitRoom, submitWork,
-  deletePriceItem, fillFromPrice, submitPrice });
+  deletePriceItem, fillFromPrice, submitPrice, deleteClient, submitClient,
+  setAddToObjectObj, submitAddToObject });
 
 render();
 </script>
