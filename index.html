@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KERAFLOW</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap');
+* { box-sizing: border-box; margin: 0; }
+:root {
+  --bg: #0A0D14; --panel: #11151F; --panel-2: #161B26; --line: #232838;
+  --amber: #F5B93D; --amber-soft: rgba(245,185,61,0.14);
+  --text: #F2F3F6; --muted: #8B93A3; --green: #3DD68C; --blue: #4C8DFF; --red: #E5534B;
+}
+html, body { height: 100%; }
+body {
+  font-family: 'Manrope', sans-serif; background: var(--bg); color: var(--text);
+  font-size: 14px; -webkit-tap-highlight-color: transparent;
+}
+.mono { font-family: 'IBM Plex Mono', monospace; }
+button { font-family: inherit; cursor: pointer; }
+input, select { font-family: inherit; }
+
+.app { display: flex; min-height: 100vh; }
+
+/* ---------- Sidebar (wide) ---------- */
+.sidebar {
+  width: 68px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; padding: 18px 0; gap: 10px;
+  position: sticky; top: 0; height: 100vh;
+}
+.side-icon {
+  width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center;
+  justify-content: center; color: var(--muted); border: none; background: none; font-size: 18px;
+}
+.side-icon.active { background: var(--amber); color: #1A1300; }
+.side-spacer { flex: 1; }
+.side-avatar {
+  width: 36px; height: 36px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
+}
+
+/* ---------- Bottom bar (narrow) ---------- */
+.bottombar {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 72px; z-index: 20;
+  background: var(--panel); border-top: 1px solid var(--line);
+  display: none; align-items: stretch; padding-bottom: env(safe-area-inset-bottom, 6px);
+}
+.bottom-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; background: none; border: none; color: var(--muted); font-size: 9.5px; font-weight: 700;
+}
+.bottom-item .ico { font-size: 19px; }
+.bottom-item.active { color: var(--amber); }
+
+@media (max-width: 859px) {
+  .sidebar { display: none; }
+  .bottombar { display: flex; }
+  .main { padding-bottom: 96px !important; }
+}
+
+.main { flex: 1; padding: 20px 22px; max-width: 1200px; margin: 0 auto; width: 100%; }
+.cols { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 859px) { .cols { grid-template-columns: 1fr; } }
+
+/* ---------- Shared ---------- */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+.eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; color: var(--amber); text-transform: uppercase; }
+.h1 { font-size: 19px; font-weight: 800; margin-top: 4px; }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.count-badge {
+  min-width: 26px; height: 26px; padding: 0 8px; border-radius: 999px; background: var(--panel-2);
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: var(--muted);
+}
+.group-label { font-size: 10.5px; font-weight: 700; color: var(--muted); letter-spacing: .08em; margin: 14px 0 8px; text-transform: uppercase; }
+.empty-slot { border: 1px dashed var(--line); border-radius: 12px; padding: 14px; color: var(--muted); font-size: 12.5px; }
+.amber-btn {
+  background: var(--amber); color: #1A1300; border: none; border-radius: 12px; padding: 11px 18px;
+  font-weight: 800; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px;
+}
+.amber-btn:disabled { opacity: .4; cursor: default; }
+.ghost-btn {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  padding: 10px 14px; border-radius: 10px; font-weight: 700; font-size: 12.5px;
+}
+.dashed-btn {
+  width: 100%; margin-top: 14px; padding: 11px; border-radius: 12px; border: 1px dashed var(--line);
+  background: none; color: var(--muted); font-weight: 700; font-size: 12.5px;
+}
+.pill { display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.pill.active { background: var(--amber-soft); color: var(--amber); }
+.pill.planned { background: rgba(140,148,163,0.15); color: var(--muted); }
+.pill.done { background: rgba(61,214,140,0.15); color: var(--green); }
+
+/* ---------- Object list ---------- */
+.obj-row {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px; display: flex; gap: 12px; align-items: center; cursor: pointer; margin-bottom: 8px;
+}
+.obj-row.selected { background: var(--amber-soft); border-color: rgba(245,185,61,0.4); }
+.obj-row-icon {
+  width: 38px; height: 38px; border-radius: 10px; background: #1B2130; display: flex;
+  align-items: center; justify-content: center; color: var(--amber); flex-shrink: 0; font-size: 16px;
+}
+.obj-row-name { font-weight: 700; font-size: 14px; }
+.obj-row-addr { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+.obj-row-status { color: var(--amber); font-weight: 700; font-size: 11.5px; margin-top: 3px; }
+
+/* ---------- Object detail ---------- */
+.top-gradient { height: 5px; border-radius: 999px; background: linear-gradient(90deg, var(--blue), var(--green)); margin-bottom: 16px; }
+.banner-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px;
+  display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+}
+.banner-title { font-size: 26px; font-weight: 800; margin-top: 10px; }
+.banner-addr { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.ring-card {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px; padding: 14px 18px;
+  display: flex; align-items: center; gap: 14px; flex-shrink: 0;
+}
+.ring-wrap { position: relative; width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; }
+.ring-value { position: absolute; text-align: center; }
+.ring-value .mono { font-size: 22px; font-weight: 800; color: var(--amber); }
+.ring-value .cap { font-size: 9px; color: var(--muted); font-weight: 700; letter-spacing: .06em; }
+.ring-caption { font-size: 11px; color: var(--muted); max-width: 130px; line-height: 1.4; }
+.ring-caption b { color: var(--text); display: block; font-size: 12px; margin-bottom: 3px; }
+
+.section-card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px; margin-top: 18px; }
+.section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
+.section-title { font-size: 19px; font-weight: 800; margin-top: 2px; }
+
+.quick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.quick-btn {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 15px 10px;
+  text-align: center; font-weight: 700; font-size: 13px; color: var(--text);
+}
+.quick-btn.selected { background: var(--amber); color: #1A1300; border-color: var(--amber); }
+
+.room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 18px; }
+.room-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px; padding: 16px; cursor: pointer; }
+.room-card:hover { border-color: var(--amber); }
+.room-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.room-name { font-weight: 800; font-size: 16px; }
+.room-count { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.pct-pill { background: var(--amber-soft); color: var(--amber); font-weight: 800; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
+.room-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.mini-stat { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.mini-stat-label { font-size: 9.5px; color: var(--muted); font-weight: 700; letter-spacing: .06em; }
+.mini-stat-val { font-size: 16px; font-weight: 800; margin-top: 2px; }
+.mini-stat-val.green { color: var(--green); }
+.mini-stat-val.amber { color: var(--amber); }
+
+/* ---------- Works ---------- */
+.back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 700; font-size: 12.5px; cursor: pointer; margin-bottom: 14px; background: none; border: none; }
+.work-row {
+  display: flex; align-items: center; gap: 12px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 14px; padding: 12px 14px; margin-bottom: 10px;
+}
+.check {
+  width: 32px; height: 32px; border-radius: 9px; border: 1.5px solid var(--line); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: none; color: transparent; font-size: 15px;
+}
+.check.done { background: var(--green); border-color: var(--green); color: #06120B; }
+.w-name { font-weight: 700; font-size: 13.5px; }
+.w-name.done { color: var(--muted); text-decoration: line-through; }
+.w-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; display: flex; gap: 10px; }
+.w-del { background: none; border: none; color: var(--muted); font-size: 15px; padding: 6px; }
+.w-del:hover { color: var(--red); }
+
+/* ---------- Modal ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(6,8,12,0.65); display: flex;
+  align-items: center; justify-content: center; z-index: 40; padding: 16px;
+}
+.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px; width: 100%; max-width: 360px; }
+.modal h3 { margin: 0 0 14px; font-size: 17px; }
+.field { margin-bottom: 12px; }
+.field label { font-size: 11px; color: var(--muted); font-weight: 700; display: block; }
+.field input, .field select {
+  width: 100%; margin-top: 5px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); font-size: 14px;
+}
+.modal-actions { display: flex; gap: 10px; margin-top: 8px; }
+.modal-actions button { flex: 1; justify-content: center; }
+
+/* ---------- Placeholder pages ---------- */
+.placeholder { text-align: center; padding: 60px 20px; color: var(--muted); }
+.placeholder .big { font-size: 40px; margin-bottom: 12px; }
+.placeholder .t { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+
+/* Dashboard */
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; text-align: center; }
+.stat-num { font-size: 24px; font-weight: 800; color: var(--amber); }
+.stat-label { font-size: 11px; color: var(--muted); margin-top: 3px; }
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+
+<script>
+/* =========================================================
+   KERAFLOW — веб-версія (vanilla JS, один файл)
+   Дані зберігаються в localStorage (ключ keraflow-data).
+   Розгортання: покласти цей файл як index.html на будь-який
+   хостинг (Vercel / Netlify / GitHub Pages).
+========================================================= */
+
+const STORAGE_KEY = "keraflow-data";
+
+const NAV_ITEMS = [
+  { key: "dashboard", label: "Dashboard", ico: "🏠" },
+  { key: "objects",   label: "Об'єкти",   ico: "🏗" },
+  { key: "clients",   label: "Клієнти",   ico: "👥" },
+  { key: "acts",      label: "Акти",      ico: "📄" },
+  { key: "settings",  label: "Налашт.",   ico: "⚙️" },
+];
+
+const OBJ_STATUS = {
+  planned: { label: "Планування", cls: "planned" },
+  active:  { label: "В роботі",   cls: "active" },
+  done:    { label: "Завершено",  cls: "done" },
+};
+
+const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акти","Розрахунок","Примітки"];
+
+const seedData = {
+  objects: [
+    {
+      id: "obj-1", name: "Villa Makarska", address: "Put Vodenica 12, Makarska",
+      client: "Ivan Horvat", status: "active",
+      rooms: [
+        { id: "room-1", name: "Ванна", works: [
+          { id: "w1", name: "Укладання плитки (підлога)", unit: "м²", qty: 12, price: 42, done: true },
+          { id: "w2", name: "Укладання плитки (стіни)", unit: "м²", qty: 28, price: 45, done: true },
+          { id: "w3", name: "Гідроізоляція", unit: "м²", qty: 14, price: 15, done: true },
+          { id: "w4", name: "Затирка швів", unit: "м²", qty: 40, price: 8, done: true },
+          { id: "w5", name: "Монтаж плінтуса", unit: "м.п.", qty: 9, price: 6, done: true },
+          { id: "w6", name: "Прибирання після робіт", unit: "шт", qty: 1, price: 0, done: false },
+        ]},
+        { id: "room-2", name: "Кухня", works: [
+          { id: "w7", name: "Підготовка стіни", unit: "м²", qty: 6, price: 10, done: true },
+          { id: "w8", name: "Підготовка підлоги", unit: "м²", qty: 9, price: 10, done: true },
+          { id: "w9", name: "Укладання фартуха", unit: "м²", qty: 6, price: 50, done: false },
+          { id: "w10", name: "Укладання підлоги", unit: "м²", qty: 9, price: 38, done: false },
+          { id: "w11", name: "Затирка швів", unit: "м²", qty: 15, price: 8, done: false },
+        ]},
+      ],
+    },
+  ],
+};
+
+/* ---------- State + persistence ---------- */
+let state = {
+  nav: "objects",
+  selectedObjId: null,
+  selectedRoomId: null,
+  quick: "Робота",
+  data: loadData(),
+  modal: null, // { type: 'object'|'room'|'work' }
+};
+state.selectedObjId = state.data.objects[0]?.id || null;
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage недоступний — працюємо в пам'яті */ }
+  return JSON.parse(JSON.stringify(seedData));
+}
+function saveData() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data)); } catch (e) {}
+}
+
+/* ---------- Helpers ---------- */
+const uid = p => `${p}-${Date.now()}-${Math.floor(Math.random()*1e4)}`;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function roomProgress(room) {
+  if (!room.works.length) return 0;
+  return Math.round(room.works.filter(w => w.done).length / room.works.length * 100);
+}
+function objectProgress(obj) {
+  if (!obj.rooms.length) return 0;
+  const v = obj.rooms.map(roomProgress);
+  return Math.round(v.reduce((a,b)=>a+b,0) / v.length);
+}
+function getObj() { return state.data.objects.find(o => o.id === state.selectedObjId) || null; }
+function getRoom() { const o = getObj(); return o?.rooms.find(r => r.id === state.selectedRoomId) || null; }
+
+/* ---------- Actions ---------- */
+function setNav(key) { state.nav = key; state.selectedRoomId = null; render(); }
+function selectObject(id) { state.selectedObjId = id; state.selectedRoomId = null; render(); }
+function selectRoom(id) { state.selectedRoomId = id; render(); }
+function setQuick(q) { state.quick = q; render(); }
+function openModal(type) { state.modal = { type }; render(); }
+function closeModal() { state.modal = null; render(); }
+
+function toggleWork(workId) {
+  const room = getRoom(); if (!room) return;
+  const w = room.works.find(w => w.id === workId); if (!w) return;
+  w.done = !w.done; saveData(); render();
+}
+function deleteWork(workId) {
+  const room = getRoom(); if (!room) return;
+  room.works = room.works.filter(w => w.id !== workId); saveData(); render();
+}
+function createObject(name, address, client) {
+  const obj = { id: uid("obj"), name, address, client, status: "planned", rooms: [] };
+  state.data.objects.push(obj);
+  state.selectedObjId = obj.id; state.selectedRoomId = null;
+  saveData(); closeModal();
+}
+function createRoom(name) {
+  const o = getObj(); if (!o) return;
+  o.rooms.push({ id: uid("room"), name, works: [] });
+  saveData(); closeModal();
+}
+function createWork(name, unit, qty, price) {
+  const r = getRoom(); if (!r) return;
+  r.works.push({ id: uid("w"), name, unit, qty: Number(qty)||0, price: Number(price)||0, done: false });
+  saveData(); closeModal();
+}
+function cycleObjectStatus() {
+  const o = getObj(); if (!o) return;
+  const order = ["planned","active","done"];
+  o.status = order[(order.indexOf(o.status)+1) % order.length];
+  saveData(); render();
+}
+
+/* ---------- Render ---------- */
+function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = `
+    ${renderSidebar()}
+    <div class="main">${renderPage()}</div>
+    ${renderBottomBar()}
+    ${renderModal()}
+  `;
+}
+
+function renderSidebar() {
+  return `<div class="sidebar">
+    ${NAV_ITEMS.map(i => `
+      <button class="side-icon ${state.nav===i.key?"active":""}" title="${i.label}" onclick="setNav('${i.key}')">${i.ico}</button>
+    `).join("")}
+    <div class="side-spacer"></div>
+    <div class="side-avatar">K</div>
+  </div>`;
+}
+
+function renderBottomBar() {
+  return `<div class="bottombar">
+    ${NAV_ITEMS.map(i => `
+      <button class="bottom-item ${state.nav===i.key?"active":""}" onclick="setNav('${i.key}')">
+        <span class="ico">${i.ico}</span>${i.label}
+      </button>
+    `).join("")}
+  </div>`;
+}
+
+function renderPage() {
+  switch (state.nav) {
+    case "dashboard": return renderDashboard();
+    case "objects":   return renderObjects();
+    case "clients":   return renderPlaceholder("👥","Клієнти","Модуль у розробці. Клієнти зараз прив'язані до об'єктів.");
+    case "acts":      return renderPlaceholder("📄","Акти виконаних робіт","Модуль у розробці. Акти генеруватимуться із завершених робіт.");
+    case "settings":  return renderSettings();
+  }
+}
+
+function renderDashboard() {
+  const objs = state.data.objects;
+  const active = objs.filter(o=>o.status==="active").length;
+  const done = objs.filter(o=>o.status==="done").length;
+  const totalWorks = objs.flatMap(o=>o.rooms).flatMap(r=>r.works);
+  const openWorks = totalWorks.filter(w=>!w.done).length;
+  return `
+    <div class="eyebrow">Огляд</div>
+    <div class="h1" style="margin-bottom:18px;">Dashboard</div>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-num mono">${active}</div><div class="stat-label">Активні об'єкти</div></div>
+      <div class="stat"><div class="stat-num mono">${openWorks}</div><div class="stat-label">Незавершені роботи</div></div>
+      <div class="stat"><div class="stat-num mono">${done}</div><div class="stat-label">Завершені об'єкти</div></div>
+    </div>
+    <div class="panel">
+      <div class="group-label" style="margin-top:0;">Активні об'єкти</div>
+      ${objs.filter(o=>o.status!=="done").map(o=>objRowHtml(o)).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
+      <button class="dashed-btn" onclick="setNav('objects'); openModal('object')">+ Новий об'єкт</button>
+    </div>
+  `;
+}
+
+function objRowHtml(o) {
+  const sel = o.id === state.selectedObjId;
+  return `<div class="obj-row ${sel?"selected":""}" onclick="setNav('objects'); selectObject('${o.id}')">
+    <div class="obj-row-icon">🏗</div>
+    <div>
+      <div class="obj-row-name">${esc(o.name)}</div>
+      <div class="obj-row-addr">${esc(o.address)}</div>
+      ${o.status==="active" ? `<div class="obj-row-status">В роботі</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderObjects() {
+  const objs = state.data.objects;
+  const grouped = {
+    active: objs.filter(o=>o.status==="active"),
+    planned: objs.filter(o=>o.status==="planned"),
+    done: objs.filter(o=>o.status==="done"),
+  };
+  return `<div class="cols">
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="eyebrow">Об'єкти</div><div class="h1">Робочий список</div></div>
+        <div class="count-badge">${objs.length}</div>
+      </div>
+      <div class="group-label">В процесі</div>
+      ${grouped.active.map(objRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
+      <div class="group-label">Планування</div>
+      ${grouped.planned.map(objRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
+      <div class="group-label">Завершені</div>
+      ${grouped.done.map(objRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
+      <button class="dashed-btn" onclick="openModal('object')">+ Новий об'єкт</button>
+    </div>
+    <div>${renderObjectDetail()}</div>
+  </div>`;
+}
+
+function ringSvg(value) {
+  const size = 96, stroke = 8, r = (size-stroke)/2, c = 2*Math.PI*r;
+  const off = c - value/100*c;
+  return `<svg width="${size}" height="${size}" style="transform:rotate(-90deg)">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="#232838" stroke-width="${stroke}" fill="none"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="#F5B93D" stroke-width="${stroke}" fill="none"
+      stroke-dasharray="${c}" stroke-dashoffset="${off}" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function renderObjectDetail() {
+  const obj = getObj();
+  if (!obj) return `<div class="panel placeholder"><div class="big">🏗</div><div class="t">Оберіть об'єкт</div>Або створіть перший об'єкт зліва.</div>`;
+  const room = getRoom();
+  if (room) return renderRoomDetail(obj, room);
+
+  const p = objectProgress(obj);
+  const st = OBJ_STATUS[obj.status];
+  return `
+    <div class="top-gradient"></div>
+    <div class="banner-card">
+      <div>
+        <span class="pill ${st.cls}" style="cursor:pointer" title="Натисніть, щоб змінити статус" onclick="cycleObjectStatus()">${st.label}</span>
+        <div class="banner-title">${esc(obj.name)}</div>
+        <div class="banner-addr">📍 ${esc(obj.address)}</div>
+        ${obj.client ? `<div class="banner-addr">👤 ${esc(obj.client)}</div>` : ""}
+      </div>
+      <div class="ring-card">
+        <div class="ring-wrap">
+          ${ringSvg(p)}
+          <div class="ring-value"><div class="mono">${p}%</div><div class="cap">ГОТОВО</div></div>
+        </div>
+        <div class="ring-caption"><b>Готовність об'єкта</b>Прогрес за кімнатами та роботами.</div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div><div class="eyebrow">Робоча область об'єкта</div><div class="section-title">Керування всередині об'єкта</div></div>
+        <button class="amber-btn" onclick="openModal('room')">+ Додати кімнату</button>
+      </div>
+      <div class="quick-grid">
+        ${QUICK_ACTIONS.map(q => `<button class="quick-btn ${state.quick===q?"selected":""}" onclick="setQuick('${q}')">${q}</button>`).join("")}
+      </div>
+      <div class="room-grid">
+        ${obj.rooms.map(r => {
+          const rp = roomProgress(r);
+          const doneN = r.works.filter(w=>w.done).length;
+          return `<div class="room-card" onclick="selectRoom('${r.id}')">
+            <div class="room-head">
+              <div><div class="room-name">${esc(r.name)}</div><div class="room-count">${r.works.length} робіт</div></div>
+              <div class="pct-pill mono">${rp}%</div>
+            </div>
+            <div class="room-stats">
+              <div class="mini-stat"><div class="mini-stat-label">ВИКОНАНО</div><div class="mini-stat-val green mono">${doneN}</div></div>
+              <div class="mini-stat"><div class="mini-stat-label">ПРОГРЕС</div><div class="mini-stat-val amber mono">≈ ${rp}%</div></div>
+            </div>
+          </div>`;
+        }).join("") || ""}
+      </div>
+      ${obj.rooms.length===0 ? `<div class="empty-slot" style="margin-top:14px;">Створіть першу кімнату.</div>` : ""}
+    </div>
+  `;
+}
+
+function renderRoomDetail(obj, room) {
+  return `
+    <div class="section-card" style="margin-top:0;">
+      <button class="back-link" onclick="selectRoom(null)">← До об'єкта</button>
+      <div class="section-head">
+        <div><div class="eyebrow">Кімната</div><div class="section-title">${esc(room.name)}</div></div>
+        <button class="amber-btn" onclick="openModal('work')">+ Робота</button>
+      </div>
+      ${room.works.map(w => `
+        <div class="work-row">
+          <button class="check ${w.done?"done":""}" onclick="toggleWork('${w.id}')">${w.done?"✓":""}</button>
+          <div style="flex:1">
+            <div class="w-name ${w.done?"done":""}">${esc(w.name)}</div>
+            <div class="w-meta">
+              <span class="mono">${w.qty} ${esc(w.unit)}</span>
+              ${w.price>0 ? `<span class="mono">${w.price} €/${esc(w.unit)}</span>` : ""}
+            </div>
+          </div>
+          <button class="w-del" title="Видалити" onclick="deleteWork('${w.id}')">✕</button>
+        </div>
+      `).join("") || `<div class="empty-slot">Ще немає жодної роботи.</div>`}
+    </div>
+  `;
+}
+
+function renderSettings() {
+  return `
+    <div class="eyebrow">Система</div>
+    <div class="h1" style="margin-bottom:18px;">Налаштування</div>
+    <div class="panel">
+      <div class="group-label" style="margin-top:0;">Дані</div>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
+        Дані зберігаються локально у браузері (localStorage). Синхронізація з хмарою — наступний етап.
+      </p>
+      <button class="ghost-btn" onclick="if(confirm('Скинути всі дані до демонстраційних?')){localStorage.removeItem('${STORAGE_KEY}');location.reload();}">
+        Скинути дані до демо
+      </button>
+    </div>
+  `;
+}
+
+function renderPlaceholder(ico, title, desc) {
+  return `<div class="panel placeholder"><div class="big">${ico}</div><div class="t">${title}</div>${desc}</div>`;
+}
+
+/* ---------- Modals ---------- */
+function renderModal() {
+  if (!state.modal) return "";
+  const t = state.modal.type;
+  let body = "";
+  if (t === "object") body = `
+    <h3>Новий об'єкт</h3>
+    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Villa Makarska"></div>
+    <div class="field"><label>Адреса</label><input id="m-addr" placeholder="Вулиця, місто"></div>
+    <div class="field"><label>Замовник</label><input id="m-client" placeholder="Ім'я замовника"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitObject()">Створити</button>
+    </div>`;
+  if (t === "room") body = `
+    <h3>Нова кімната</h3>
+    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Ванна"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitRoom()">Створити</button>
+    </div>`;
+  if (t === "work") body = `
+    <h3>Нова робота</h3>
+    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Укладання плитки"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="м²"></div>
+      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
+    </div>
+    <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitWork()">Додати</button>
+    </div>`;
+  return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
+}
+
+function val(id) { return document.getElementById(id)?.value.trim() || ""; }
+function submitObject() { const n = val("m-name"); if (!n) return; createObject(n, val("m-addr")||"—", val("m-client")); }
+function submitRoom() { const n = val("m-name"); if (!n) return; createRoom(n); }
+function submitWork() { const n = val("m-name"); if (!n) return; createWork(n, val("m-unit")||"шт", val("m-qty"), val("m-price")); }
+
+/* expose to inline handlers */
+Object.assign(window, { setNav, selectObject, selectRoom, setQuick, openModal, closeModal,
+  toggleWork, deleteWork, cycleObjectStatus, submitObject, submitRoom, submitWork });
+
+render();
+</script>
+</body>
+</html>
