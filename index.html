@@ -215,6 +215,7 @@ const NAV_ITEMS = [
   { key: "objects",   label: "Об'єкти",   ico: "🏗" },
   { key: "clients",   label: "Клієнти",   ico: "👥" },
   { key: "acts",      label: "Акти",      ico: "📄" },
+  { key: "price",     label: "Прайс",     ico: "💰" },
   { key: "settings",  label: "Налашт.",   ico: "⚙️" },
 ];
 
@@ -227,6 +228,18 @@ const OBJ_STATUS = {
 const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акти","Розрахунок","Примітки"];
 
 const seedData = {
+  priceItems: [
+    { id: "price-1", name: "Укладання плитки (підлога)", unit: "м²", price: 42 },
+    { id: "price-2", name: "Укладання плитки (стіни)", unit: "м²", price: 45 },
+    { id: "price-3", name: "Гідроізоляція", unit: "м²", price: 15 },
+    { id: "price-4", name: "Затирка швів", unit: "м²", price: 8 },
+    { id: "price-5", name: "Монтаж плінтуса", unit: "м.п.", price: 6 },
+    { id: "price-6", name: "Підготовка стіни (штукатурка)", unit: "м²", price: 10 },
+    { id: "price-7", name: "Підготовка підлоги (стяжка)", unit: "м²", price: 10 },
+    { id: "price-8", name: "Укладання фартуха кухні", unit: "м²", price: 50 },
+    { id: "price-9", name: "Демонтаж старої плитки", unit: "м²", price: 12 },
+    { id: "price-10", name: "Різка плитки під кутом (45°)", unit: "м.п.", price: 7 },
+  ],
   objects: [
     {
       id: "obj-1", name: "Villa Makarska", address: "Put Vodenica 12, Makarska",
@@ -295,7 +308,7 @@ function setNav(key) { state.nav = key; state.selectedRoomId = null; render(); }
 function selectObject(id) { state.selectedObjId = id; state.selectedRoomId = null; render(); }
 function selectRoom(id) { state.selectedRoomId = id; render(); }
 function setQuick(q) { state.quick = q; render(); }
-function openModal(type) { state.modal = { type }; render(); }
+function openModal(type, id) { state.modal = { type, id: id || null }; render(); }
 function closeModal() { state.modal = null; render(); }
 
 function toggleWork(workId) {
@@ -328,6 +341,29 @@ function cycleObjectStatus() {
   const order = ["planned","active","done"];
   o.status = order[(order.indexOf(o.status)+1) % order.length];
   saveData(); render();
+}
+
+/* ---------- Price list ---------- */
+function createPriceItem(name, unit, price) {
+  state.data.priceItems = state.data.priceItems || [];
+  state.data.priceItems.push({ id: uid("price"), name, unit, price });
+  saveData(); closeModal();
+}
+function updatePriceItem(id, name, unit, price) {
+  const p = (state.data.priceItems || []).find(p => p.id === id); if (!p) return;
+  p.name = name; p.unit = unit; p.price = price;
+  saveData(); closeModal();
+}
+function deletePriceItem(id) {
+  state.data.priceItems = (state.data.priceItems || []).filter(p => p.id !== id);
+  saveData(); render();
+}
+function fillFromPrice(id) {
+  if (!id) return;
+  const p = (state.data.priceItems || []).find(p => p.id === id); if (!p) return;
+  document.getElementById("m-name").value = p.name;
+  document.getElementById("m-unit").value = p.unit;
+  document.getElementById("m-price").value = p.price;
 }
 
 /* ---------- Render ---------- */
@@ -367,6 +403,7 @@ function renderPage() {
     case "objects":   return renderObjects();
     case "clients":   return renderPlaceholder("👥","Клієнти","Модуль у розробці. Клієнти зараз прив'язані до об'єктів.");
     case "acts":      return renderPlaceholder("📄","Акти виконаних робіт","Модуль у розробці. Акти генеруватимуться із завершених робіт.");
+    case "price":     return renderPrice();
     case "settings":  return renderSettings();
   }
 }
@@ -520,6 +557,33 @@ function renderRoomDetail(obj, room) {
   `;
 }
 
+function renderPrice() {
+  const items = state.data.priceItems || [];
+  return `
+    <div class="eyebrow">Бібліотека</div>
+    <div class="h1" style="margin-bottom:18px;">Прайс-лист</div>
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="group-label" style="margin-top:0;">Типові роботи</div></div>
+        <div class="count-badge">${items.length}</div>
+      </div>
+      ${items.map(p => priceRowHtml(p)).join("") || `<div class="empty-slot">Прайс порожній. Додайте першу позицію.</div>`}
+      <button class="dashed-btn" onclick="openModal('price')">+ Нова позиція</button>
+    </div>
+  `;
+}
+
+function priceRowHtml(p) {
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${esc(p.name)}</div>
+      <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
+    </div>
+    <button class="w-del" title="Редагувати" onclick="openModal('price','${p.id}')">✎</button>
+    <button class="w-del" title="Видалити" onclick="deletePriceItem('${p.id}')">✕</button>
+  </div>`;
+}
+
 function renderSettings() {
   return `
     <div class="eyebrow">Система</div>
@@ -563,6 +627,13 @@ function renderModal() {
     </div>`;
   if (t === "work") body = `
     <h3>Нова робота</h3>
+    ${(state.data.priceItems||[]).length ? `
+    <div class="field"><label>З прайсу (необов'язково)</label>
+      <select id="m-pricepick" onchange="fillFromPrice(this.value)">
+        <option value="">— обрати вручну —</option>
+        ${state.data.priceItems.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
+      </select>
+    </div>` : ""}
     <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Укладання плитки"></div>
     <div style="display:flex;gap:10px;">
       <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="м²"></div>
@@ -573,6 +644,20 @@ function renderModal() {
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitWork()">Додати</button>
     </div>`;
+  if (t === "price") {
+    const editing = state.modal.id ? (state.data.priceItems||[]).find(p => p.id === state.modal.id) : null;
+    body = `
+    <h3>${editing ? "Редагувати позицію" : "Нова позиція прайсу"}</h3>
+    <div class="field"><label>Назва роботи</label><input id="m-name" placeholder="Напр. Укладання плитки (підлога)" value="${editing ? esc(editing.name) : ""}"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing ? esc(editing.unit) : "м²"}"></div>
+      <div class="field" style="flex:1"><label>Ціна (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing ? editing.price : ""}"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitPrice('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Додати"}</button>
+    </div>`;
+  }
   return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
 }
 
@@ -580,10 +665,17 @@ function val(id) { return document.getElementById(id)?.value.trim() || ""; }
 function submitObject() { const n = val("m-name"); if (!n) return; createObject(n, val("m-addr")||"—", val("m-client")); }
 function submitRoom() { const n = val("m-name"); if (!n) return; createRoom(n); }
 function submitWork() { const n = val("m-name"); if (!n) return; createWork(n, val("m-unit")||"шт", val("m-qty"), val("m-price")); }
+function submitPrice(id) {
+  const n = val("m-name"); if (!n) return;
+  const unit = val("m-unit") || "шт";
+  const price = Number(val("m-price")) || 0;
+  if (id) updatePriceItem(id, n, unit, price); else createPriceItem(n, unit, price);
+}
 
 /* expose to inline handlers */
 Object.assign(window, { setNav, selectObject, selectRoom, setQuick, openModal, closeModal,
-  toggleWork, deleteWork, cycleObjectStatus, submitObject, submitRoom, submitWork });
+  toggleWork, deleteWork, cycleObjectStatus, submitObject, submitRoom, submitWork,
+  deletePriceItem, fillFromPrice, submitPrice });
 
 render();
 </script>
