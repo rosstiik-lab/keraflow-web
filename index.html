@@ -177,6 +177,11 @@ input, select { font-family: inherit; }
 .obj-header-compact-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; }
 .obj-header-compact-ring { position: relative; width: 48px; height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .obj-header-compact-ring .pct { position: absolute; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 800; color: var(--amber); }
+.obj-header-debt-badge {
+  margin-left: auto; flex-shrink: 0; background: rgba(229,83,75,0.14); color: var(--red);
+  border: 1px solid rgba(229,83,75,0.4); border-radius: 999px; padding: 7px 12px;
+  font-weight: 800; font-size: 12px; white-space: nowrap;
+}
 .obj-header-compact-title { font-size: 16px; font-weight: 800; }
 .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .btn-row .ghost-btn { flex: 1; min-width: 140px; text-align: center; }
@@ -235,6 +240,26 @@ input, select { font-family: inherit; }
 }
 .w-del:hover { color: var(--red); }
 
+/* ---------- Switch (toggle) ---------- */
+.switch-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; margin-bottom: 12px;
+  cursor: pointer;
+}
+.switch-row-label { font-size: 13px; font-weight: 700; }
+.switch { position: relative; width: 40px; height: 23px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch-track {
+  position: absolute; inset: 0; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 999px; transition: .15s ease;
+}
+.switch-track::before {
+  content: ""; position: absolute; width: 17px; height: 17px; left: 2px; top: 2px;
+  background: var(--muted); border-radius: 50%; transition: .15s ease;
+}
+.switch input:checked + .switch-track { background: rgba(229,83,75,0.25); border-color: var(--red); }
+.switch input:checked + .switch-track::before { transform: translateX(17px); background: var(--red); }
+
 /* ---------- Modal ---------- */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(6,8,12,0.65); display: flex;
@@ -256,6 +281,13 @@ input, select { font-family: inherit; }
 .placeholder { text-align: center; padding: 60px 20px; color: var(--muted); }
 .placeholder .big { font-size: 40px; margin-bottom: 12px; }
 .placeholder .t { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+
+/* ---------- Print (замовницький звіт) ---------- */
+@media print {
+  body * { visibility: hidden; }
+  .print-report, .print-report * { visibility: visible; }
+  .print-report { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; }
+}
 </style>
 </head>
 <body>
@@ -344,11 +376,11 @@ const seedData = {
         ]},
       ],
       materials: [
-        { id: "mat-1", name: "Клей для плитки", qty: 10, unit: "мішок", price: 12, paid: true },
-        { id: "mat-2", name: "Затирка", qty: 4, unit: "кг", price: 8, paid: false },
+        { id: "mat-1", name: "Клей для плитки", qty: 10, unit: "мішок", price: 12, isDebt: false },
+        { id: "mat-2", name: "Затирка", qty: 4, unit: "кг", price: 8, isDebt: true },
       ],
       materialReceipts: [
-        { id: "receipt-1", amount: 180, date: "2026-05-10", note: "Будматеріали, магазин Baumax" },
+        { id: "receipt-1", amount: 180, date: "2026-05-10", note: "Будматеріали, магазин Baumax", isDebt: false },
       ],
       materialPayments: [
         { id: "matpay-1", amount: 120, date: "2026-05-12", note: "" },
@@ -387,6 +419,8 @@ function migrateData(data) {
     if (o.materialPayments === undefined) o.materialPayments = [];
     if (o.advances === undefined) o.advances = [];
     if (o.zones === undefined) o.zones = [];
+    (o.materials || []).forEach(m => { if (m.isDebt === undefined) m.isDebt = false; });
+    (o.materialReceipts || []).forEach(r => { if (r.isDebt === undefined) r.isDebt = false; });
     (o.rooms || []).forEach(r => {
       (r.works || []).forEach(w => {
         if (w.priceItemId === undefined) w.priceItemId = null;
@@ -463,6 +497,11 @@ function roomSumLeft(room) { return room.works.filter(w=>!w.done).reduce((s,w) =
 function objectSum(obj) { return obj.rooms.reduce((s,r) => s + roomSum(r), 0); }
 function objectSumDone(obj) { return obj.rooms.reduce((s,r) => s + roomSumDone(r), 0); }
 function objectSumLeft(obj) { return obj.rooms.reduce((s,r) => s + roomSumLeft(r), 0); }
+function objectDebtTotal(obj) {
+  const matDebt = (obj.materials||[]).filter(m => m.isDebt).reduce((s,m) => s + m.qty*m.price, 0);
+  const receiptDebt = (obj.materialReceipts||[]).filter(r => r.isDebt).reduce((s,r) => s + r.amount, 0);
+  return matDebt + receiptDebt;
+}
 
 /* ---------- Actions ---------- */
 function setNav(key) {
@@ -625,10 +664,10 @@ function pickWorkPriceItem(id) {
   render();
 }
 /* ---------- Materials ---------- */
-function createMaterial(name, qty, unit, price) {
+function createMaterial(name, qty, unit, price, isDebt) {
   const o = getObj(); if (!o) return;
   o.materials = o.materials || [];
-  o.materials.push({ id: uid("mat"), name, qty: Number(qty)||0, unit, price: Number(price)||0, paid: false });
+  o.materials.push({ id: uid("mat"), name, qty: Number(qty)||0, unit, price: Number(price)||0, isDebt: !!isDebt });
   o.updatedAt = Date.now();
   saveData(); closeModal();
 }
@@ -638,16 +677,10 @@ function deleteMaterial(id) {
   o.updatedAt = Date.now();
   saveData(); render();
 }
-function toggleMaterialPaid(id) {
-  const o = getObj(); if (!o) return;
-  const m = (o.materials||[]).find(m => m.id === id); if (!m) return;
-  m.paid = !m.paid; o.updatedAt = Date.now();
-  saveData(); render();
-}
-function createMaterialReceipt(amount, date, note) {
+function createMaterialReceipt(amount, date, note, isDebt) {
   const o = getObj(); if (!o) return;
   o.materialReceipts = o.materialReceipts || [];
-  o.materialReceipts.push({ id: uid("receipt"), amount: Number(amount)||0, date: date||"", note: note||"" });
+  o.materialReceipts.push({ id: uid("receipt"), amount: Number(amount)||0, date: date||"", note: note||"", isDebt: !!isDebt });
   o.updatedAt = Date.now();
   saveData(); closeModal();
 }
@@ -907,12 +940,14 @@ function renderObjectDetail(obj) {
   if (room) return renderRoomDetail(obj, room);
 
   const p = objectProgress(obj);
+  const debt = objectDebtTotal(obj);
   return `
     <button class="back-link" onclick="selectObject(null)">← До списку об'єктів</button>
     <div class="obj-header" id="obj-header">
       <div class="obj-header-compact-row">
         <div class="obj-header-compact-ring">${ringSvg(p, 48, 5)}<span class="pct">${p}%</span></div>
         <div class="obj-header-compact-title">${esc(obj.name)}</div>
+        ${debt > 0 ? `<button class="obj-header-debt-badge" onclick="setQuick('Матеріал')">Борг: ${fmtEUR(debt)}</button>` : ""}
       </div>
     </div>
 
@@ -1069,13 +1104,13 @@ function renderMaterialsTab(obj) {
       <button class="ghost-btn" onclick="openModal('material')">+ Додати матеріал</button>
       <button class="ghost-btn" onclick="openModal('materialReceipt')">+ Додати чек</button>
       <button class="ghost-btn" onclick="openModal('materialPayment')">+ Додати оплату</button>
+      <button class="ghost-btn" onclick="openModal('materialsReport')">📄 Звіт для замовника</button>
     </div>
   `;
 }
 
 function materialRowHtml(m) {
   return `<div class="work-row">
-    <button class="check ${m.paid?"done":""}" title="Оплачено" onclick="toggleMaterialPaid('${m.id}')">${m.paid?"✓":""}</button>
     <div style="flex:1">
       <div class="w-name">${esc(m.name)}</div>
       <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
@@ -1565,6 +1600,10 @@ function renderModal() {
       <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="шт"></div>
     </div>
     <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal"></div>
+    <label class="switch-row">
+      <span class="switch-row-label">Борг перед магазином</span>
+      <span class="switch"><input id="m-isdebt" type="checkbox"><span class="switch-track"></span></span>
+    </label>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitMaterial()">Додати</button>
@@ -1574,6 +1613,10 @@ function renderModal() {
     <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
     <div class="field"><label>Дата</label><input id="m-date" type="date"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Напр. Будматеріали, магазин"></div>
+    <label class="switch-row">
+      <span class="switch-row-label">Борг перед магазином</span>
+      <span class="switch"><input id="m-isdebt" type="checkbox"><span class="switch-track"></span></span>
+    </label>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitMaterialReceipt()">Додати</button>
@@ -1595,6 +1638,35 @@ function renderModal() {
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitAdvance()">Додати</button>
     </div>`;
+  if (t === "materialsReport") {
+    const o = getObj();
+    const materials = o ? (o.materials||[]).filter(m => !m.isDebt) : [];
+    const total = materials.reduce((s,m) => s + m.qty*m.price, 0);
+    body = `
+    <h3>Звіт для замовника</h3>
+    <div class="print-report">
+      ${o ? `<div style="margin-bottom:12px;">
+        <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
+        ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
+      </div>` : ""}
+      ${materials.length ? materials.map(m => `
+        <div class="work-row">
+          <div style="flex:1">
+            <div class="w-name">${esc(m.name)}</div>
+            <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
+          </div>
+          <div class="mono" style="font-weight:800;">${fmtEUR(m.qty*m.price)}</div>
+        </div>
+      `).join("") : `<div class="empty-slot">Матеріалів немає.</div>`}
+      <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
+        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+    </div>`;
+  }
   return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
 }
 
@@ -1681,11 +1753,11 @@ function submitClient(id) {
 }
 function submitMaterial() {
   const n = val("m-name"); if (!n) return;
-  createMaterial(n, val("m-qty"), val("m-unit")||"шт", val("m-price"));
+  createMaterial(n, val("m-qty"), val("m-unit")||"шт", val("m-price"), document.getElementById("m-isdebt")?.checked);
 }
 function submitMaterialReceipt() {
   const amount = Number(val("m-amount")); if (!amount) return;
-  createMaterialReceipt(amount, val("m-date"), val("m-note"));
+  createMaterialReceipt(amount, val("m-date"), val("m-note"), document.getElementById("m-isdebt")?.checked);
 }
 function submitMaterialPayment() {
   const amount = Number(val("m-amount")); if (!amount) return;
@@ -1702,7 +1774,7 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
-  toggleMaterialPaid, deleteMaterial, deleteMaterialReceipt, deleteMaterialPayment, deleteAdvance,
+  deleteMaterial, deleteMaterialReceipt, deleteMaterialPayment, deleteAdvance,
   submitMaterial, submitMaterialReceipt, submitMaterialPayment, submitAdvance,
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
   submitPriceCategory, submitPriceUnit, deletePriceUnit,
