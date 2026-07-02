@@ -274,6 +274,9 @@ input, select { font-family: inherit; }
   background: var(--bg); color: var(--text); font-size: 14px; font-family: inherit;
 }
 .field textarea { resize: vertical; }
+.field input[type="date"], .field input[type="datetime-local"] {
+  width: 100%; box-sizing: border-box; min-width: 0; padding: 9px 8px; font-size: 12.5px;
+}
 .modal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .modal-actions button { flex: 1; justify-content: center; }
 
@@ -417,6 +420,7 @@ function migrateData(data) {
     if (o.materials === undefined) o.materials = [];
     if (o.materialReceipts === undefined) o.materialReceipts = [];
     if (o.materialPayments === undefined) o.materialPayments = [];
+    if (o.materialReports === undefined) o.materialReports = [];
     if (o.advances === undefined) o.advances = [];
     if (o.zones === undefined) o.zones = [];
     (o.materials || []).forEach(m => { if (m.isDebt === undefined) m.isDebt = false; });
@@ -458,6 +462,7 @@ function saveData() {
 const uid = p => `${p}-${Date.now()}-${Math.floor(Math.random()*1e4)}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const fmtEUR = n => `${n.toFixed(2)} €`;
+const fmtDateTime = ts => new Date(ts).toLocaleString("uk-UA", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
 function timeAgo(ts) {
   if (!ts) return "—";
   const diffMs = Date.now() - ts;
@@ -677,6 +682,13 @@ function deleteMaterial(id) {
   o.updatedAt = Date.now();
   saveData(); render();
 }
+function updateMaterial(id, fields) {
+  const o = getObj(); if (!o) return;
+  const m = (o.materials||[]).find(m => m.id === id); if (!m) return;
+  Object.assign(m, fields);
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
 function createMaterialReceipt(amount, date, note, isDebt) {
   const o = getObj(); if (!o) return;
   o.materialReceipts = o.materialReceipts || [];
@@ -689,6 +701,33 @@ function deleteMaterialReceipt(id) {
   o.materialReceipts = (o.materialReceipts||[]).filter(r => r.id !== id);
   o.updatedAt = Date.now();
   saveData(); render();
+}
+function updateMaterialReceipt(id, fields) {
+  const o = getObj(); if (!o) return;
+  const r = (o.materialReceipts||[]).find(r => r.id === id); if (!r) return;
+  Object.assign(r, fields);
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function generateMaterialsReport() {
+  const o = getObj(); if (!o) return;
+  if (!confirm("Після формування звіту поточні матеріали й чеки буде заархівовано і більше не можна буде редагувати. Продовжити?")) return;
+  o.materialReports = o.materialReports || [];
+  o.materialReports.push({
+    id: uid("matreport"),
+    createdAt: Date.now(),
+    materials: JSON.parse(JSON.stringify(o.materials||[])),
+    receipts: JSON.parse(JSON.stringify(o.materialReceipts||[])),
+  });
+  o.materials = [];
+  o.materialReceipts = [];
+  o.materialPayments = [];
+  o.updatedAt = Date.now();
+  saveData(); render();
+}
+function viewMaterialReport(id) {
+  state.modal = { type: "materialReportView", id };
+  render();
 }
 function createMaterialPayment(amount, date) {
   const o = getObj(); if (!o) return;
@@ -1105,6 +1144,8 @@ function renderMaterialsTab(obj) {
       <button class="ghost-btn" onclick="openModal('materialReceipt')">+ Додати чек</button>
       <button class="ghost-btn" onclick="openModal('materialPayment')">+ Додати оплату</button>
       <button class="ghost-btn" onclick="openModal('materialsReport')">📄 Звіт для замовника</button>
+      <button class="ghost-btn" onclick="generateMaterialsReport()">Сформувати звіт</button>
+      <button class="ghost-btn" onclick="openModal('materialReportsHistory')">Історія звітів</button>
     </div>
   `;
 }
@@ -1115,6 +1156,7 @@ function materialRowHtml(m) {
       <div class="w-name">${esc(m.name)}</div>
       <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
     </div>
+    <button class="w-del" title="Редагувати" onclick="openModal('material','${m.id}')">✎</button>
     <button class="w-del" title="Видалити" onclick="deleteMaterial('${m.id}')">✕</button>
   </div>`;
 }
@@ -1124,6 +1166,7 @@ function receiptRowHtml(r) {
       <div class="w-name">${fmtEUR(r.amount)}</div>
       <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
     </div>
+    <button class="w-del" title="Редагувати" onclick="openModal('materialReceipt','${r.id}')">✎</button>
     <button class="w-del" title="Видалити" onclick="deleteMaterialReceipt('${r.id}')">✕</button>
   </div>`;
 }
@@ -1592,39 +1635,47 @@ function renderModal() {
       <button class="danger-btn" onclick="deleteZone('${z.id}')">Видалити</button>
     </div>`;
   }
-  if (t === "material") body = `
-    <h3>Новий матеріал</h3>
-    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Клей для плитки"></div>
+  if (t === "material") {
+    const o0 = getObj();
+    const editing = state.modal.id && o0 ? (o0.materials||[]).find(m => m.id === state.modal.id) : null;
+    body = `
+    <h3>${editing ? "Редагувати матеріал" : "Новий матеріал"}</h3>
+    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Клей для плитки" value="${editing?esc(editing.name):""}"></div>
     <div style="display:flex;gap:10px;">
-      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
-      <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="шт"></div>
+      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing?editing.qty:""}"></div>
+      <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing?esc(editing.unit):"шт"}"></div>
     </div>
-    <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal"></div>
+    <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing?editing.price:""}"></div>
     <label class="switch-row">
       <span class="switch-row-label">Борг перед магазином</span>
-      <span class="switch"><input id="m-isdebt" type="checkbox"><span class="switch-track"></span></span>
+      <span class="switch"><input id="m-isdebt" type="checkbox" ${editing&&editing.isDebt?"checked":""}><span class="switch-track"></span></span>
     </label>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitMaterial()">Додати</button>
+      <button class="amber-btn" onclick="submitMaterial('${editing?editing.id:""}')">${editing?"Зберегти":"Додати"}</button>
     </div>`;
-  if (t === "materialReceipt") body = `
-    <h3>Новий чек на закупівлю</h3>
-    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
-    <div class="field"><label>Дата</label><input id="m-date" type="date"></div>
-    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Напр. Будматеріали, магазин"></div>
+  }
+  if (t === "materialReceipt") {
+    const o1 = getObj();
+    const editing = state.modal.id && o1 ? (o1.materialReceipts||[]).find(r => r.id === state.modal.id) : null;
+    body = `
+    <h3>${editing ? "Редагувати чек" : "Новий чек на закупівлю"}</h3>
+    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):""}"></div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Напр. Будматеріали, магазин" value="${editing?esc(editing.note||""):""}"></div>
     <label class="switch-row">
       <span class="switch-row-label">Борг перед магазином</span>
-      <span class="switch"><input id="m-isdebt" type="checkbox"><span class="switch-track"></span></span>
+      <span class="switch"><input id="m-isdebt" type="checkbox" ${editing&&editing.isDebt?"checked":""}><span class="switch-track"></span></span>
     </label>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitMaterialReceipt()">Додати</button>
+      <button class="amber-btn" onclick="submitMaterialReceipt('${editing?editing.id:""}')">${editing?"Зберегти":"Додати"}</button>
     </div>`;
+  }
   if (t === "materialPayment") body = `
     <h3>Нова оплата постачальнику</h3>
     <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
-    <div class="field"><label>Дата</label><input id="m-date" type="date"></div>
+    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitMaterialPayment()">Додати</button>
@@ -1665,6 +1716,59 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Закрити</button>
       <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+    </div>`;
+  }
+  if (t === "materialReportsHistory") {
+    const o = getObj();
+    const reports = o ? (o.materialReports||[]).slice().sort((a,b) => b.createdAt-a.createdAt) : [];
+    body = `
+    <h3>Історія звітів</h3>
+    ${reports.length ? reports.map(rep => {
+      const total = (rep.materials||[]).reduce((s,m) => s + m.qty*m.price, 0);
+      return `<div class="work-row" style="cursor:pointer;" onclick="viewMaterialReport('${rep.id}')">
+        <div style="flex:1">
+          <div class="w-name">${esc(fmtDateTime(rep.createdAt))}</div>
+          <div class="w-meta"><span class="mono">${(rep.materials||[]).length} матеріалів</span><span class="mono">${(rep.receipts||[]).length} чеків</span></div>
+        </div>
+        <div class="mono" style="font-weight:800;">${fmtEUR(total)}</div>
+      </div>`;
+    }).join("") : `<div class="empty-slot">Ще немає жодного сформованого звіту.</div>`}
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+    </div>`;
+  }
+  if (t === "materialReportView") {
+    const o = getObj();
+    const rep = o ? (o.materialReports||[]).find(r => r.id === state.modal.id) : null;
+    const materials = rep ? (rep.materials||[]) : [];
+    const receipts = rep ? (rep.receipts||[]) : [];
+    const total = materials.reduce((s,m) => s + m.qty*m.price, 0);
+    body = `
+    <h3>Звіт від ${rep ? esc(fmtDateTime(rep.createdAt)) : ""}</h3>
+    <div class="group-label">Матеріали</div>
+    ${materials.length ? materials.map(m => `
+      <div class="work-row">
+        <div style="flex:1">
+          <div class="w-name">${esc(m.name)}${m.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+          <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
+        </div>
+        <div class="mono" style="font-weight:800;">${fmtEUR(m.qty*m.price)}</div>
+      </div>
+    `).join("") : `<div class="empty-slot">Матеріалів немає.</div>`}
+    ${receipts.length ? `<div class="group-label">Чеки на закупівлю</div>${receipts.map(r => `
+      <div class="work-row">
+        <div style="flex:1">
+          <div class="w-name">${fmtEUR(r.amount)}${r.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+          <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
+        </div>
+      </div>
+    `).join("")}` : ""}
+    <div class="room-stats" style="grid-template-columns:1fr;margin-top:8px;">
+      <div class="mini-stat"><div class="mini-stat-label">РАЗОМ МАТЕРІАЛИ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="openModal('materialReportsHistory')">← Історія</button>
+      <button class="amber-btn" onclick="closeModal()">Закрити</button>
     </div>`;
   }
   return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
@@ -1751,13 +1855,23 @@ function submitClient(id) {
   }
   createClient(n, phone, addr, note);
 }
-function submitMaterial() {
+function submitMaterial(id) {
   const n = val("m-name"); if (!n) return;
-  createMaterial(n, val("m-qty"), val("m-unit")||"шт", val("m-price"), document.getElementById("m-isdebt")?.checked);
+  const isDebt = !!document.getElementById("m-isdebt")?.checked;
+  if (id) {
+    updateMaterial(id, { name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, isDebt });
+  } else {
+    createMaterial(n, val("m-qty"), val("m-unit")||"шт", val("m-price"), isDebt);
+  }
 }
-function submitMaterialReceipt() {
+function submitMaterialReceipt(id) {
   const amount = Number(val("m-amount")); if (!amount) return;
-  createMaterialReceipt(amount, val("m-date"), val("m-note"), document.getElementById("m-isdebt")?.checked);
+  const isDebt = !!document.getElementById("m-isdebt")?.checked;
+  if (id) {
+    updateMaterialReceipt(id, { amount, date: val("m-date"), note: val("m-note"), isDebt });
+  } else {
+    createMaterialReceipt(amount, val("m-date"), val("m-note"), isDebt);
+  }
 }
 function submitMaterialPayment() {
   const amount = Number(val("m-amount")); if (!amount) return;
@@ -1778,7 +1892,8 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   submitMaterial, submitMaterialReceipt, submitMaterialPayment, submitAdvance,
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
   submitPriceCategory, submitPriceUnit, deletePriceUnit,
-  setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem });
+  setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem,
+  generateMaterialsReport, viewMaterialReport });
 
 render();
 </script>
