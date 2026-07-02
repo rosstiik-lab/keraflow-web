@@ -278,7 +278,6 @@ let state = {
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'client'|'addToObject' }
 };
-state.selectedObjId = state.data.objects[0]?.id || null;
 
 function loadData() {
   try {
@@ -317,7 +316,11 @@ function objectSumDone(obj) { return obj.rooms.reduce((s,r) => s + roomSumDone(r
 function objectSumLeft(obj) { return obj.rooms.reduce((s,r) => s + roomSumLeft(r), 0); }
 
 /* ---------- Actions ---------- */
-function setNav(key) { state.nav = key; state.selectedRoomId = null; render(); }
+function setNav(key) {
+  state.nav = key; state.selectedRoomId = null;
+  if (key === "objects") state.selectedObjId = null;
+  render();
+}
 function selectObject(id) { state.selectedObjId = id; state.selectedRoomId = null; render(); }
 function selectRoom(id) { state.selectedRoomId = id; render(); }
 function setQuick(q) { state.quick = q; render(); }
@@ -466,28 +469,46 @@ function objRowHtml(o) {
 }
 
 function renderObjects() {
+  const obj = getObj();
+  if (obj) return renderObjectDetail(obj);
+  return renderObjectsList();
+}
+
+function objListRowHtml(o) {
+  const client = o.clientId ? getClient(o.clientId) : null;
+  return `<div class="obj-row" onclick="selectObject('${o.id}')">
+    <div class="obj-row-icon">🏗</div>
+    <div>
+      <div class="obj-row-name">${esc(o.name)}</div>
+      <div class="obj-row-addr">📍 ${esc(o.address)}</div>
+      <div class="obj-row-addr">👤 ${client ? esc(client.name) : "Без замовника"}</div>
+      ${o.status==="active" ? `<div class="obj-row-status">В роботі</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderObjectsList() {
   const objs = state.data.objects;
   const grouped = {
     active: objs.filter(o=>o.status==="active"),
     planned: objs.filter(o=>o.status==="planned"),
     done: objs.filter(o=>o.status==="done"),
   };
-  return `<div class="cols">
+  return `
     <div class="panel">
       <div class="panel-head">
         <div><div class="eyebrow">Об'єкти</div><div class="h1">Робочий список</div></div>
         <div class="count-badge">${objs.length}</div>
       </div>
-      <div class="group-label">В процесі</div>
-      ${grouped.active.map(objRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
+      <div class="group-label" style="margin-top:0;">В процесі</div>
+      ${grouped.active.map(objListRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
       <div class="group-label">Планування</div>
-      ${grouped.planned.map(objRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
+      ${grouped.planned.map(objListRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
       <div class="group-label">Завершені</div>
-      ${grouped.done.map(objRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
+      ${grouped.done.map(objListRowHtml).join("") || `<div class="empty-slot">Немає об'єктів.</div>`}
       <button class="dashed-btn" onclick="openModal('object')">+ Новий об'єкт</button>
     </div>
-    <div>${renderObjectDetail()}</div>
-  </div>`;
+  `;
 }
 
 function ringSvg(value) {
@@ -500,9 +521,7 @@ function ringSvg(value) {
   </svg>`;
 }
 
-function renderObjectDetail() {
-  const obj = getObj();
-  if (!obj) return `<div class="panel placeholder"><div class="big">🏗</div><div class="t">Оберіть об'єкт</div>Або створіть перший об'єкт зліва.</div>`;
+function renderObjectDetail(obj) {
   const room = getRoom();
   if (room) return renderRoomDetail(obj, room);
 
@@ -510,6 +529,7 @@ function renderObjectDetail() {
   const st = OBJ_STATUS[obj.status];
   const client = obj.clientId ? getClient(obj.clientId) : null;
   return `
+    <button class="back-link" onclick="selectObject(null)">← До списку об'єктів</button>
     <div class="top-gradient"></div>
     <div class="banner-card">
       <div>
