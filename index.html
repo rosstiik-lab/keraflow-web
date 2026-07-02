@@ -555,6 +555,13 @@ function createWork(name, unit, qty, price) {
   o.updatedAt = Date.now();
   saveData(); closeModal();
 }
+function updateWork(id, name, unit, qty, price) {
+  const o = getObj(); const r = getRoom(); if (!o || !r) return;
+  const w = r.works.find(w => w.id === id); if (!w) return;
+  w.name = name; w.unit = unit; w.qty = Number(qty)||0; w.price = Number(price)||0;
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
 /* ---------- Materials ---------- */
 function createMaterial(name, qty, unit, price) {
   const o = getObj(); if (!o) return;
@@ -1098,6 +1105,7 @@ function renderRoomDetail(obj, room) {
               ${w.price>0 ? `<span class="mono">${w.price} €/${esc(w.unit)}</span>` : ""}
             </div>
           </div>
+          <button class="w-del" title="Редагувати" onclick="openModal('work','${w.id}')">✎</button>
           <button class="w-del" title="Видалити" onclick="deleteWork('${w.id}')">✕</button>
         </div>
       `).join("") || `<div class="empty-slot">Ще немає жодної роботи.</div>`}
@@ -1260,25 +1268,29 @@ function renderModal() {
       <button class="amber-btn" onclick="submitZone()">${editing ? "Зберегти" : "Створити"}</button>
     </div>`;
   }
-  if (t === "work") body = `
-    <h3>Нова робота</h3>
-    ${(state.data.priceItems||[]).length ? `
+  if (t === "work") {
+    const room = getRoom();
+    const editing = state.modal.id && room ? room.works.find(w => w.id === state.modal.id) : null;
+    body = `
+    <h3>${editing ? "Редагувати роботу" : "Нова робота"}</h3>
+    ${!editing && (state.data.priceItems||[]).length ? `
     <div class="field"><label>З прайсу (необов'язково)</label>
       <select id="m-pricepick" onchange="fillFromPrice(this.value)">
         <option value="">— обрати вручну —</option>
         ${state.data.priceItems.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
       </select>
     </div>` : ""}
-    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Укладання плитки"></div>
+    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Укладання плитки" value="${editing ? esc(editing.name) : ""}"></div>
     <div style="display:flex;gap:10px;">
-      <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="м²"></div>
-      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
+      <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing ? esc(editing.unit) : "м²"}"></div>
+      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing ? editing.qty : ""}"></div>
     </div>
-    <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal"></div>
+    <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing ? editing.price : ""}"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitWork()">Додати</button>
+      <button class="amber-btn" onclick="submitWork()">${editing ? "Зберегти" : "Додати"}</button>
     </div>`;
+  }
   if (t === "price") {
     const editing = state.modal.id ? (state.data.priceItems||[]).find(p => p.id === state.modal.id) : null;
     body = `
@@ -1436,7 +1448,12 @@ function submitZone() {
   const id = state.modal && state.modal.id;
   if (id) updateZone(id, n); else createZone(n);
 }
-function submitWork() { const n = val("m-name"); if (!n) return; createWork(n, val("m-unit")||"шт", val("m-qty"), val("m-price")); }
+function submitWork() {
+  const n = val("m-name"); if (!n) return;
+  const id = state.modal && state.modal.id;
+  if (id) updateWork(id, n, val("m-unit")||"шт", val("m-qty"), val("m-price"));
+  else createWork(n, val("m-unit")||"шт", val("m-qty"), val("m-price"));
+}
 function submitPrice(id) {
   const n = val("m-name"); if (!n) return;
   const unit = val("m-unit") || "шт";
