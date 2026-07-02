@@ -592,11 +592,6 @@ function linkedPriceItem(work) {
   if (!work.priceItemId) return null;
   return (state.data.priceItems || []).find(p => p.id === work.priceItemId) || null;
 }
-function setWorkMode(mode) {
-  if (!state.modal) return;
-  state.modal.workMode = mode; state.modal.priceItemId = null;
-  render();
-}
 function setWorkPriceItem(id) {
   if (!state.modal) return;
   state.modal.priceItemId = id || null;
@@ -1384,24 +1379,26 @@ function renderModal() {
         <button class="amber-btn" onclick="submitWork()">Зберегти</button>
       </div>`;
     } else {
-      const mode = state.modal.workMode || "price";
       const priceItems = state.data.priceItems || [];
-      const selPriceItem = state.modal.priceItemId ? priceItems.find(p => p.id === state.modal.priceItemId) : null;
-      body = `
-      <h3>Нова робота</h3>
-      <div class="quick-grid">
-        <button type="button" class="quick-btn ${mode==='price'?'selected':''}" onclick="setWorkMode('price')">З прайсу</button>
-        <button type="button" class="quick-btn ${mode==='custom'?'selected':''}" onclick="setWorkMode('custom')">Власна робота</button>
-      </div>
-      <div style="margin-top:14px;">
-      ${mode === "price" ? `
+      if (!priceItems.length) {
+        body = `
+        <h3>Нова робота</h3>
+        <div class="empty-slot">У прайсі поки немає жодної позиції. Спочатку додайте роботи в розділі «Прайс».</div>
+        <div class="modal-actions">
+          <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+          <button class="amber-btn" onclick="closeModal(); setNav('price')">Перейти в Прайс</button>
+        </div>`;
+      } else {
+        const selPriceItem = state.modal.priceItemId ? priceItems.find(p => p.id === state.modal.priceItemId) : null;
+        body = `
+        <h3>Нова робота</h3>
         <div class="field"><label>Позиція з прайсу</label>
-          <select id="m-priceitem" onchange="setWorkPriceItem(this.value)" ${priceItems.length ? "" : "disabled"}>
+          <select id="m-priceitem" onchange="setWorkPriceItem(this.value)">
             <option value="">— оберіть позицію —</option>
             ${priceItems.map(p => `<option value="${p.id}" ${state.modal.priceItemId===p.id?"selected":""}>${esc(p.name)} · ${esc(p.category||"Без категорії")} · ${p.price} €/${esc(p.unit)}</option>`).join("")}
           </select>
         </div>
-        ${!priceItems.length ? `<div class="empty-slot">Прайс порожній. Додайте позиції в розділі «Прайс».</div>` : selPriceItem ? `
+        ${selPriceItem ? `
           <div class="field"><label>Назва</label><input value="${esc(selPriceItem.name)}" disabled></div>
           <div style="display:flex;gap:10px;">
             <div class="field" style="flex:1"><label>Категорія</label><input value="${esc(selPriceItem.category||"Без категорії")}" disabled></div>
@@ -1413,20 +1410,11 @@ function renderModal() {
           </div>
           <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2"></textarea></div>
         ` : `<div class="empty-slot">Оберіть позицію з прайсу вище.</div>`}
-      ` : `
-        <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Укладання плитки"></div>
-        <div style="display:flex;gap:10px;">
-          <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="м²"></div>
-          <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
-        </div>
-        <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal"></div>
-        <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2"></textarea></div>
-      `}
-      </div>
-      <div class="modal-actions">
-        <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-        <button class="amber-btn" onclick="submitWork()" ${mode==='price' && !selPriceItem ? "disabled" : ""}>Додати</button>
-      </div>`;
+        <div class="modal-actions">
+          <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+          <button class="amber-btn" onclick="submitWork()" ${!selPriceItem ? "disabled" : ""}>Додати</button>
+        </div>`;
+      }
     }
   }
   if (t === "price") {
@@ -1610,15 +1598,10 @@ function submitWork() {
     }
     return;
   }
-  const mode = state.modal.workMode || "price";
-  if (mode === "price") {
-    const priceItemId = state.modal.priceItemId; if (!priceItemId) return;
-    const p = (state.data.priceItems||[]).find(p => p.id === priceItemId); if (!p) return;
-    createWork(p.name, p.unit, val("m-qty"), val("m-price"), p.id, val("m-note"));
-  } else {
-    const n = val("m-name"); if (!n) return;
-    createWork(n, val("m-unit")||"шт", val("m-qty"), val("m-price"), null, val("m-note"));
-  }
+  const priceItemId = state.modal.priceItemId; if (!priceItemId) return;
+  const p = (state.data.priceItems||[]).find(p => p.id === priceItemId); if (!p) return;
+  if (!val("m-qty")) return;
+  createWork(p.name, p.unit, val("m-qty"), val("m-price"), p.id, val("m-note"));
 }
 function submitPrice(id) {
   const n = val("m-name"); if (!n) return;
@@ -1683,7 +1666,7 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   toggleMaterialPaid, deleteMaterial, deleteMaterialReceipt, deleteMaterialPayment, deleteAdvance,
   submitMaterial, submitMaterialReceipt, submitMaterialPayment, submitAdvance,
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
-  submitPriceCategory, submitPriceUnit, deletePriceUnit, setWorkMode, setWorkPriceItem });
+  submitPriceCategory, submitPriceUnit, deletePriceUnit, setWorkPriceItem });
 
 render();
 </script>
