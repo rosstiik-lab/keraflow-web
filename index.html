@@ -203,6 +203,7 @@ input, select { font-family: inherit; }
 /* ---------- Works ---------- */
 .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 700; font-size: 12.5px; cursor: pointer; margin-bottom: 14px; background: none; border: none; }
 .work-row {
+  position: relative;
   display: flex; align-items: center; gap: 12px; background: var(--panel-2); border: 1px solid var(--line);
   border-radius: 14px; padding: 12px 14px; margin-bottom: 10px;
 }
@@ -215,7 +216,10 @@ input, select { font-family: inherit; }
 .w-name { font-weight: 700; font-size: 13.5px; }
 .w-name.done { color: var(--muted); text-decoration: line-through; }
 .w-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; display: flex; gap: 10px; }
-.w-del { background: none; border: none; color: var(--muted); font-size: 15px; padding: 6px; }
+.w-del {
+  background: none; border: none; color: var(--muted); font-size: 15px; padding: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 .w-del:hover { color: var(--red); }
 
 /* ---------- Modal ---------- */
@@ -264,6 +268,7 @@ const ICON_PATHS = {
   settings: `<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>`,
   search:   `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
   chevron:  `<path d="m6 9 6 6 6-6"/>`,
+  addTo:    `<path d="M15 10l5 5-5 5"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/>`,
 };
 function svgIcon(key, size) {
   size = size || 22;
@@ -289,16 +294,16 @@ const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акт�
 
 const seedData = {
   priceItems: [
-    { id: "price-1", name: "Укладання плитки (підлога)", unit: "м²", price: 42 },
-    { id: "price-2", name: "Укладання плитки (стіни)", unit: "м²", price: 45 },
-    { id: "price-3", name: "Гідроізоляція", unit: "м²", price: 15 },
-    { id: "price-4", name: "Затирка швів", unit: "м²", price: 8 },
-    { id: "price-5", name: "Монтаж плінтуса", unit: "м.п.", price: 6 },
-    { id: "price-6", name: "Підготовка стіни (штукатурка)", unit: "м²", price: 10 },
-    { id: "price-7", name: "Підготовка підлоги (стяжка)", unit: "м²", price: 10 },
-    { id: "price-8", name: "Укладання фартуха кухні", unit: "м²", price: 50 },
-    { id: "price-9", name: "Демонтаж старої плитки", unit: "м²", price: 12 },
-    { id: "price-10", name: "Різка плитки під кутом (45°)", unit: "м.п.", price: 7 },
+    { id: "price-1", category: "Плитка", name: "Укладання плитки (підлога)", unit: "м²", price: 42 },
+    { id: "price-2", category: "Плитка", name: "Укладання плитки (стіни)", unit: "м²", price: 45 },
+    { id: "price-3", category: "Гідроізоляція", name: "Гідроізоляція", unit: "м²", price: 15 },
+    { id: "price-4", category: "Плитка", name: "Затирка швів", unit: "м²", price: 8 },
+    { id: "price-5", category: "Опорядження", name: "Монтаж плінтуса", unit: "м.п.", price: 6 },
+    { id: "price-6", category: "Підготовчі роботи", name: "Підготовка стіни (штукатурка)", unit: "м²", price: 10 },
+    { id: "price-7", category: "Підготовчі роботи", name: "Підготовка підлоги (стяжка)", unit: "м²", price: 10 },
+    { id: "price-8", category: "Плитка", name: "Укладання фартуха кухні", unit: "м²", price: 50 },
+    { id: "price-9", category: "Демонтаж", name: "Демонтаж старої плитки", unit: "м²", price: 12 },
+    { id: "price-10", category: "Плитка", name: "Різка плитки під кутом (45°)", unit: "м.п.", price: 7 },
   ],
   clients: [
     { id: "client-1", name: "Ivan Horvat", phone: "+385 91 234 5678", address: "Put Vodenica 12, Makarska", note: "" },
@@ -350,6 +355,7 @@ let state = {
   selectedClientId: null,
   quick: "Робота",
   objSearch: "",
+  priceSearch: "",
   openActionMenuId: null,
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'client'|'addToObject'|'deleteObject'|'zone' }
@@ -367,6 +373,10 @@ function migrateData(data) {
     if (o.materialPayments === undefined) o.materialPayments = [];
     if (o.advances === undefined) o.advances = [];
     if (o.zones === undefined) o.zones = [];
+  });
+  data.priceItems = data.priceItems || [];
+  data.priceItems.forEach(p => {
+    if (p.category === undefined) p.category = "Без категорії";
   });
   data.collapsedGroups = data.collapsedGroups || {};
   return data;
@@ -625,18 +635,25 @@ function deleteAdvance(id) {
 }
 
 /* ---------- Price list ---------- */
-function createPriceItem(name, unit, price) {
+function setPriceSearch(q) { state.priceSearch = q; render(); }
+function priceMatchesSearch(p, q) {
+  if (!q) return true;
+  const hay = `${p.name} ${p.category||""}`.toLowerCase();
+  return hay.includes(q.trim().toLowerCase());
+}
+function createPriceItem(category, name, unit, price) {
   state.data.priceItems = state.data.priceItems || [];
-  state.data.priceItems.push({ id: uid("price"), name, unit, price });
+  state.data.priceItems.push({ id: uid("price"), category: category || "Без категорії", name, unit, price });
   saveData(); closeModal();
 }
-function updatePriceItem(id, name, unit, price) {
+function updatePriceItem(id, category, name, unit, price) {
   const p = (state.data.priceItems || []).find(p => p.id === id); if (!p) return;
-  p.name = name; p.unit = unit; p.price = price;
+  p.category = category || "Без категорії"; p.name = name; p.unit = unit; p.price = price;
   saveData(); closeModal();
 }
 function deletePriceItem(id) {
   state.data.priceItems = (state.data.priceItems || []).filter(p => p.id !== id);
+  if (state.openActionMenuId === id) state.openActionMenuId = null;
   saveData(); render();
 }
 function fillFromPrice(id) {
@@ -1114,18 +1131,43 @@ function renderRoomDetail(obj, room) {
 }
 
 function renderPrice() {
-  const items = state.data.priceItems || [];
+  const allItems = state.data.priceItems || [];
+
+  if (allItems.length === 0) {
+    return `
+      <div class="eyebrow">Бібліотека</div>
+      <div class="h1" style="margin-bottom:18px;">Прайс-лист</div>
+      <div class="panel placeholder">
+        <div class="big">${svgIcon("price", 40)}</div>
+        <div class="t">Прайс поки порожній</div>
+        <button class="amber-btn" style="margin-top:14px;" onclick="openModal('price')">+ Нова позиція</button>
+      </div>
+    `;
+  }
+
+  const q = state.priceSearch || "";
+  const items = allItems.filter(p => priceMatchesSearch(p, q));
+  const categories = [...new Set(items.map(p => p.category || "Без категорії"))].sort((a,b) => a.localeCompare(b, "uk"));
+
   return `
     <div class="eyebrow">Бібліотека</div>
     <div class="h1" style="margin-bottom:18px;">Прайс-лист</div>
     <div class="panel">
       <div class="panel-head">
         <div><div class="group-label" style="margin-top:0;">Типові роботи</div></div>
-        <div class="count-badge">${items.length}</div>
+        <div class="count-badge">${allItems.length}</div>
       </div>
-      ${items.map(p => priceRowHtml(p)).join("") || `<div class="empty-slot">Прайс порожній. Додайте першу позицію.</div>`}
+      <div class="search-wrap">
+        <span class="search-ico">${svgIcon("search", 16)}</span>
+        <input id="price-search-input" type="text" placeholder="Пошук за назвою чи категорією…" value="${esc(q)}" oninput="setPriceSearch(this.value)">
+      </div>
+      ${categories.length ? categories.map(cat => `
+        <div class="group-label">${esc(cat)}</div>
+        ${items.filter(p => (p.category||"Без категорії") === cat).map(priceRowHtml).join("")}
+      `).join("") : `<div class="empty-slot">Нічого не знайдено.</div>`}
       <button class="dashed-btn" onclick="openModal('price')">+ Нова позиція</button>
     </div>
+    ${state.openActionMenuId ? `<div class="menu-overlay" onclick="closeActionMenu()"></div>` : ""}
   `;
 }
 
@@ -1135,10 +1177,20 @@ function priceRowHtml(p) {
       <div class="w-name">${esc(p.name)}</div>
       <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
     </div>
-    <button class="w-del" title="Додати в об'єкт" onclick="openModal('addToObject','${p.id}')">📥</button>
-    <button class="w-del" title="Редагувати" onclick="openModal('price','${p.id}')">✎</button>
-    <button class="w-del" title="Видалити" onclick="deletePriceItem('${p.id}')">✕</button>
+    <button class="w-del" title="Додати в об'єкт" onclick="openModal('addToObject','${p.id}')">${svgIcon("addTo", 15)}</button>
+    <button class="w-del" title="Опції" onclick="toggleActionMenu('${p.id}', event)">⋯</button>
+    ${state.openActionMenuId === p.id ? priceActionMenuHtml(p) : ""}
   </div>`;
+}
+
+function priceActionMenuHtml(p) {
+  return `
+    <div class="obj-menu" onclick="event.stopPropagation()">
+      <button class="obj-menu-item" onclick="closeActionMenu(); openModal('price','${p.id}')">Редагувати</button>
+      <div class="obj-menu-sep"></div>
+      <button class="obj-menu-item danger" onclick="closeActionMenu(); deletePriceItem('${p.id}')">Видалити</button>
+    </div>
+  `;
 }
 
 function renderClients() {
@@ -1293,9 +1345,17 @@ function renderModal() {
   }
   if (t === "price") {
     const editing = state.modal.id ? (state.data.priceItems||[]).find(p => p.id === state.modal.id) : null;
+    const categories = [...new Set((state.data.priceItems||[]).map(p => p.category).filter(Boolean))];
     body = `
     <h3>${editing ? "Редагувати позицію" : "Нова позиція прайсу"}</h3>
     <div class="field"><label>Назва роботи</label><input id="m-name" placeholder="Напр. Укладання плитки (підлога)" value="${editing ? esc(editing.name) : ""}"></div>
+    <div class="field">
+      <label>Категорія</label>
+      <input id="m-category" list="price-categories" placeholder="Напр. Плитка" value="${editing ? esc(editing.category||"") : ""}">
+      <datalist id="price-categories">
+        ${categories.map(c => `<option value="${esc(c)}"></option>`).join("")}
+      </datalist>
+    </div>
     <div style="display:flex;gap:10px;">
       <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing ? esc(editing.unit) : "м²"}"></div>
       <div class="field" style="flex:1"><label>Ціна (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing ? editing.price : ""}"></div>
@@ -1320,7 +1380,7 @@ function renderModal() {
   }
   if (t === "addToObject") {
     const price = (state.data.priceItems||[]).find(p => p.id === state.modal.id);
-    const objs = state.data.objects;
+    const objs = state.data.objects.filter(o => !o.archived);
     if (!price || objs.length === 0) {
       body = `
       <h3>Додати в об'єкт</h3>
@@ -1328,7 +1388,10 @@ function renderModal() {
       <div class="modal-actions"><button class="ghost-btn" onclick="closeModal()">Закрити</button></div>`;
     } else {
       const selObj = objs.find(o => o.id === state.modal.objId) || objs[0];
-      const rooms = selObj.rooms || [];
+      const zones = selObj.zones || [];
+      const zonedRoomIds = new Set(zones.flatMap(z => z.roomIds));
+      const unzonedRooms = (selObj.rooms||[]).filter(r => !zonedRoomIds.has(r.id));
+      const hasAnyRoom = (selObj.rooms||[]).length > 0;
       body = `
       <h3>Додати в об'єкт</h3>
       <div class="field"><label>Робота</label><input value="${esc(price.name)}" disabled></div>
@@ -1337,15 +1400,21 @@ function renderModal() {
           ${objs.map(o => `<option value="${o.id}" ${o.id===selObj.id?"selected":""}>${esc(o.name)}</option>`).join("")}
         </select>
       </div>
-      <div class="field"><label>Кімната</label>
+      <div class="field"><label>Робоча зона</label>
         <select id="m-room">
-          ${rooms.length ? rooms.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("") : `<option value="">— немає кімнат —</option>`}
+          ${hasAnyRoom ? `
+            ${zones.map(z => {
+              const zoneRooms = (selObj.rooms||[]).filter(r => z.roomIds.includes(r.id));
+              return zoneRooms.length ? `<optgroup label="${esc(z.name)}">${zoneRooms.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("")}</optgroup>` : "";
+            }).join("")}
+            ${unzonedRooms.length ? `<optgroup label="Без зони">${unzonedRooms.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("")}</optgroup>` : ""}
+          ` : `<option value="">— немає робочих зон —</option>`}
         </select>
       </div>
       <div class="field"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="1"></div>
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-        <button class="amber-btn" onclick="submitAddToObject('${price.id}')" ${rooms.length ? "" : "disabled"}>Додати</button>
+        <button class="amber-btn" onclick="submitAddToObject('${price.id}')" ${hasAnyRoom ? "" : "disabled"}>Додати</button>
       </div>`;
     }
   }
@@ -1456,9 +1525,10 @@ function submitWork() {
 }
 function submitPrice(id) {
   const n = val("m-name"); if (!n) return;
+  const category = val("m-category");
   const unit = val("m-unit") || "шт";
   const price = Number(val("m-price")) || 0;
-  if (id) updatePriceItem(id, n, unit, price); else createPriceItem(n, unit, price);
+  if (id) updatePriceItem(id, category, n, unit, price); else createPriceItem(category, n, unit, price);
 }
 function handleClientSelectChange(value) {
   if (value !== "__new__") return;
@@ -1518,7 +1588,7 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
   toggleMaterialPaid, deleteMaterial, deleteMaterialReceipt, deleteMaterialPayment, deleteAdvance,
   submitMaterial, submitMaterialReceipt, submitMaterialPayment, submitAdvance,
-  deleteRoom, moveRoomToZone, deleteZone });
+  deleteRoom, moveRoomToZone, deleteZone, setPriceSearch });
 
 render();
 </script>
