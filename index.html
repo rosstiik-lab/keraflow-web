@@ -164,6 +164,15 @@ input, select { font-family: inherit; }
 .obj-menu-sub-label { font-size: 10px; color: var(--muted); font-weight: 700; padding: 6px 10px 2px; text-transform: uppercase; letter-spacing: .05em; }
 
 /* ---------- Object detail ---------- */
+.obj-header { position: sticky; top: 0; z-index: 15; background: var(--bg); padding-top: 2px; }
+.obj-header.compact .obj-header-full { display: none; }
+.obj-header-compact-row { display: none; align-items: center; gap: 12px; padding: 10px 2px; }
+.obj-header.compact .obj-header-compact-row { display: flex; }
+.obj-header-compact-ring { position: relative; width: 48px; height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.obj-header-compact-ring .pct { position: absolute; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 800; color: var(--amber); }
+.obj-header-compact-title { font-size: 16px; font-weight: 800; }
+.btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.btn-row .ghost-btn { flex: 1; min-width: 140px; text-align: center; }
 .top-gradient { height: 5px; border-radius: 999px; background: linear-gradient(90deg, var(--blue), var(--green)); margin-bottom: 16px; }
 .banner-card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px;
@@ -331,6 +340,19 @@ const seedData = {
           { id: "w11", name: "Затирка швів", unit: "м²", qty: 15, price: 8, done: false },
         ]},
       ],
+      materials: [
+        { id: "mat-1", name: "Клей для плитки", qty: 10, unit: "мішок", price: 12, paid: true },
+        { id: "mat-2", name: "Затирка", qty: 4, unit: "кг", price: 8, paid: false },
+      ],
+      materialReceipts: [
+        { id: "receipt-1", amount: 180, date: "2026-05-10", note: "Будматеріали, магазин Baumax" },
+      ],
+      materialPayments: [
+        { id: "matpay-1", amount: 120, date: "2026-05-12", note: "" },
+      ],
+      advances: [
+        { id: "adv-1", amount: 500, date: "2026-05-01", note: "Перший транш" },
+      ],
     },
   ],
 };
@@ -355,6 +377,10 @@ function migrateData(data) {
     if (o.archived === undefined) o.archived = false;
     if (o.startDate === undefined) o.startDate = "";
     if (o.note === undefined) o.note = "";
+    if (o.materials === undefined) o.materials = [];
+    if (o.materialReceipts === undefined) o.materialReceipts = [];
+    if (o.materialPayments === undefined) o.materialPayments = [];
+    if (o.advances === undefined) o.advances = [];
   });
   data.collapsedGroups = data.collapsedGroups || {};
   return data;
@@ -501,6 +527,68 @@ function cycleObjectStatus() {
   saveData(); render();
 }
 
+/* ---------- Materials ---------- */
+function createMaterial(name, qty, unit, price) {
+  const o = getObj(); if (!o) return;
+  o.materials = o.materials || [];
+  o.materials.push({ id: uid("mat"), name, qty: Number(qty)||0, unit, price: Number(price)||0, paid: false });
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function deleteMaterial(id) {
+  const o = getObj(); if (!o) return;
+  o.materials = (o.materials||[]).filter(m => m.id !== id);
+  o.updatedAt = Date.now();
+  saveData(); render();
+}
+function toggleMaterialPaid(id) {
+  const o = getObj(); if (!o) return;
+  const m = (o.materials||[]).find(m => m.id === id); if (!m) return;
+  m.paid = !m.paid; o.updatedAt = Date.now();
+  saveData(); render();
+}
+function createMaterialReceipt(amount, date, note) {
+  const o = getObj(); if (!o) return;
+  o.materialReceipts = o.materialReceipts || [];
+  o.materialReceipts.push({ id: uid("receipt"), amount: Number(amount)||0, date: date||"", note: note||"" });
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function deleteMaterialReceipt(id) {
+  const o = getObj(); if (!o) return;
+  o.materialReceipts = (o.materialReceipts||[]).filter(r => r.id !== id);
+  o.updatedAt = Date.now();
+  saveData(); render();
+}
+function createMaterialPayment(amount, date) {
+  const o = getObj(); if (!o) return;
+  o.materialPayments = o.materialPayments || [];
+  o.materialPayments.push({ id: uid("matpay"), amount: Number(amount)||0, date: date||"", note: "" });
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function deleteMaterialPayment(id) {
+  const o = getObj(); if (!o) return;
+  o.materialPayments = (o.materialPayments||[]).filter(p => p.id !== id);
+  o.updatedAt = Date.now();
+  saveData(); render();
+}
+
+/* ---------- Advances (аванси від замовника) ---------- */
+function createAdvance(amount, date, note) {
+  const o = getObj(); if (!o) return;
+  o.advances = o.advances || [];
+  o.advances.push({ id: uid("adv"), amount: Number(amount)||0, date: date||"", note: note||"" });
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function deleteAdvance(id) {
+  const o = getObj(); if (!o) return;
+  o.advances = (o.advances||[]).filter(a => a.id !== id);
+  o.updatedAt = Date.now();
+  saveData(); render();
+}
+
 /* ---------- Price list ---------- */
 function createPriceItem(name, unit, price) {
   state.data.priceItems = state.data.priceItems || [];
@@ -554,6 +642,13 @@ function deleteClient(id) {
 }
 
 /* ---------- Render ---------- */
+function syncObjHeaderCompact() {
+  const header = document.getElementById("obj-header");
+  if (!header) return;
+  header.classList.toggle("compact", window.scrollY > 40);
+}
+window.addEventListener("scroll", syncObjHeaderCompact, { passive: true });
+
 function render() {
   const active = document.activeElement;
   const activeId = active && active.id;
@@ -577,6 +672,7 @@ function render() {
       }
     }
   }
+  syncObjHeaderCompact();
 }
 
 function renderSidebar() {
@@ -702,8 +798,9 @@ function renderObjectsList() {
   `;
 }
 
-function ringSvg(value) {
-  const size = 96, stroke = 8, r = (size-stroke)/2, c = 2*Math.PI*r;
+function ringSvg(value, size, stroke) {
+  size = size || 96; stroke = stroke || 8;
+  const r = (size-stroke)/2, c = 2*Math.PI*r;
   const off = c - value/100*c;
   return `<svg width="${size}" height="${size}" style="transform:rotate(-90deg)">
     <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="#232838" stroke-width="${stroke}" fill="none"/>
@@ -721,52 +818,167 @@ function renderObjectDetail(obj) {
   const client = obj.clientId ? getClient(obj.clientId) : null;
   return `
     <button class="back-link" onclick="selectObject(null)">← До списку об'єктів</button>
-    <div class="top-gradient"></div>
-    <div class="banner-card">
-      <div>
-        <span class="pill ${st.cls}" style="cursor:pointer" title="Натисніть, щоб змінити статус" onclick="cycleObjectStatus()">${st.label}</span>
-        <div class="banner-title">${esc(obj.name)}</div>
-        <div class="banner-addr">📍 ${esc(obj.address)}</div>
-        ${client ? `<div class="banner-addr">👤 ${esc(client.name)}${client.phone ? " · " + esc(client.phone) : ""}</div>` : ""}
-      </div>
-      <div class="ring-card">
-        <div class="ring-wrap">
-          ${ringSvg(p)}
-          <div class="ring-value"><div class="mono">${p}%</div><div class="cap">ГОТОВО</div></div>
+    <div class="obj-header" id="obj-header">
+      <div class="obj-header-full">
+        <div class="top-gradient"></div>
+        <div class="banner-card">
+          <div>
+            <span class="pill ${st.cls}" style="cursor:pointer" title="Натисніть, щоб змінити статус" onclick="cycleObjectStatus()">${st.label}</span>
+            <div class="banner-title">${esc(obj.name)}</div>
+            <div class="banner-addr">📍 ${esc(obj.address)}</div>
+            ${client ? `<div class="banner-addr">👤 ${esc(client.name)}${client.phone ? " · " + esc(client.phone) : ""}</div>` : ""}
+          </div>
+          <div class="ring-card">
+            <div class="ring-wrap">
+              ${ringSvg(p)}
+              <div class="ring-value"><div class="mono">${p}%</div><div class="cap">ГОТОВО</div></div>
+            </div>
+            <div class="ring-caption"><b>Готовність об'єкта</b>Прогрес за кімнатами та роботами.</div>
+          </div>
         </div>
-        <div class="ring-caption"><b>Готовність об'єкта</b>Прогрес за кімнатами та роботами.</div>
+      </div>
+      <div class="obj-header-compact-row">
+        <div class="obj-header-compact-ring">${ringSvg(p, 48, 5)}<span class="pct">${p}%</span></div>
+        <div class="obj-header-compact-title">${esc(obj.name)}</div>
       </div>
     </div>
 
     <div class="section-card">
       <div class="section-head">
         <div><div class="eyebrow">Робоча область об'єкта</div><div class="section-title">Керування всередині об'єкта</div></div>
-        <button class="amber-btn" onclick="openModal('room')">+ Додати кімнату</button>
       </div>
       <div class="quick-grid">
         ${QUICK_ACTIONS.map(q => `<button class="quick-btn ${state.quick===q?"selected":""}" onclick="setQuick('${q}')">${q}</button>`).join("")}
       </div>
-      <div class="room-grid">
-        ${obj.rooms.map(r => {
-          const rp = roomProgress(r);
-          const doneN = r.works.filter(w=>w.done).length;
-          return `<div class="room-card" onclick="selectRoom('${r.id}')">
-            <div class="room-head">
-              <div><div class="room-name">${esc(r.name)}</div><div class="room-count">${r.works.length} робіт</div></div>
-              <div class="pct-pill mono">${rp}%</div>
-            </div>
-            <div class="room-stats">
-              <div class="mini-stat"><div class="mini-stat-label">ВИКОНАНО</div><div class="mini-stat-val green mono">${doneN}</div></div>
-              <div class="mini-stat"><div class="mini-stat-label">ПРОГРЕС</div><div class="mini-stat-val amber mono">≈ ${rp}%</div></div>
-            </div>
-          </div>`;
-        }).join("") || ""}
-      </div>
-      ${obj.rooms.length===0 ? `<div class="empty-slot" style="margin-top:14px;">Створіть першу кімнату.</div>` : ""}
+    </div>
+
+    <div class="section-card">
+      ${renderQuickContent(obj)}
     </div>
 
     ${renderCalc(obj)}
   `;
+}
+
+function renderQuickContent(obj) {
+  switch (state.quick) {
+    case "Робота":   return renderWorkspaceTab(obj);
+    case "Матеріал": return renderMaterialsTab(obj);
+    case "Оплата":   return renderAdvancesTab(obj);
+    default: return `<div class="empty-slot">Розділ «${esc(state.quick)}» ще не реалізовано.</div>`;
+  }
+}
+
+function roomCardHtml(r) {
+  const rp = roomProgress(r);
+  const doneN = r.works.filter(w=>w.done).length;
+  return `<div class="room-card" onclick="selectRoom('${r.id}')">
+    <div class="room-head">
+      <div><div class="room-name">${esc(r.name)}</div><div class="room-count">${r.works.length} робіт</div></div>
+      <div class="pct-pill mono">${rp}%</div>
+    </div>
+    <div class="room-stats">
+      <div class="mini-stat"><div class="mini-stat-label">ВИКОНАНО</div><div class="mini-stat-val green mono">${doneN}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">ПРОГРЕС</div><div class="mini-stat-val amber mono">≈ ${rp}%</div></div>
+    </div>
+  </div>`;
+}
+
+function renderWorkspaceTab(obj) {
+  return `
+    <div class="section-head">
+      <div><div class="eyebrow">Робота</div><div class="section-title">Робочі зони об'єкта</div></div>
+    </div>
+    <div class="room-grid">
+      ${obj.rooms.map(roomCardHtml).join("")}
+    </div>
+    ${obj.rooms.length===0 ? `<div class="empty-slot" style="margin-top:14px;">Створіть першу робочу зону.</div>` : ""}
+    <button class="dashed-btn" onclick="openModal('room')">+ Додати робочу зону</button>
+  `;
+}
+
+function renderMaterialsTab(obj) {
+  const materials = obj.materials || [];
+  const receipts = obj.materialReceipts || [];
+  const payments = obj.materialPayments || [];
+  const materialsTotal = materials.reduce((s,m) => s + m.qty*m.price, 0);
+  const paidTotal = payments.reduce((s,p) => s + p.amount, 0);
+  const left = Math.max(0, materialsTotal - paidTotal);
+  return `
+    <div class="section-head">
+      <div><div class="eyebrow">Матеріал</div><div class="section-title">Матеріали об'єкта</div></div>
+    </div>
+    <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
+      <div class="mini-stat"><div class="mini-stat-label">СУМА МАТЕРІАЛІВ</div><div class="mini-stat-val mono">${fmtEUR(materialsTotal)}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">ОПЛАЧЕНО ПОСТАЧАЛЬНИКУ</div><div class="mini-stat-val green mono">${fmtEUR(paidTotal)}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">ЗАЛИШИЛОСЬ</div><div class="mini-stat-val amber mono">${fmtEUR(left)}</div></div>
+    </div>
+
+    <div class="group-label">Матеріали</div>
+    ${materials.map(materialRowHtml).join("") || `<div class="empty-slot">Ще немає жодного матеріалу.</div>`}
+
+    ${receipts.length ? `<div class="group-label">Чеки на закупівлю</div>${receipts.map(receiptRowHtml).join("")}` : ""}
+    ${payments.length ? `<div class="group-label">Оплати постачальнику</div>${payments.map(paymentRowHtml).join("")}` : ""}
+
+    <div class="btn-row">
+      <button class="ghost-btn" onclick="openModal('material')">+ Додати матеріал</button>
+      <button class="ghost-btn" onclick="openModal('materialReceipt')">+ Додати чек</button>
+      <button class="ghost-btn" onclick="openModal('materialPayment')">+ Додати оплату</button>
+    </div>
+  `;
+}
+
+function materialRowHtml(m) {
+  return `<div class="work-row">
+    <button class="check ${m.paid?"done":""}" title="Оплачено" onclick="toggleMaterialPaid('${m.id}')">${m.paid?"✓":""}</button>
+    <div style="flex:1">
+      <div class="w-name">${esc(m.name)}</div>
+      <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
+    </div>
+    <button class="w-del" title="Видалити" onclick="deleteMaterial('${m.id}')">✕</button>
+  </div>`;
+}
+function receiptRowHtml(r) {
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${fmtEUR(r.amount)}</div>
+      <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
+    </div>
+    <button class="w-del" title="Видалити" onclick="deleteMaterialReceipt('${r.id}')">✕</button>
+  </div>`;
+}
+function paymentRowHtml(p) {
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${fmtEUR(p.amount)}</div>
+      <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span></div>
+    </div>
+    <button class="w-del" title="Видалити" onclick="deleteMaterialPayment('${p.id}')">✕</button>
+  </div>`;
+}
+
+function renderAdvancesTab(obj) {
+  const advances = obj.advances || [];
+  const total = advances.reduce((s,a) => s + a.amount, 0);
+  return `
+    <div class="section-head">
+      <div><div class="eyebrow">Оплата</div><div class="section-title">Аванси від замовника</div></div>
+    </div>
+    <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
+      <div class="mini-stat"><div class="mini-stat-label">ОТРИМАНО АВАНСІВ</div><div class="mini-stat-val amber mono">${fmtEUR(total)}</div></div>
+    </div>
+    ${advances.map(advanceRowHtml).join("") || `<div class="empty-slot" style="margin-top:14px;">Ще немає жодного авансу.</div>`}
+    <button class="dashed-btn" onclick="openModal('advance')">+ Додати аванс</button>
+  `;
+}
+function advanceRowHtml(a) {
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${fmtEUR(a.amount)}</div>
+      <div class="w-meta"><span class="mono">${esc(a.date||"—")}</span>${a.note?`<span>${esc(a.note)}</span>`:""}</div>
+    </div>
+    <button class="w-del" title="Видалити" onclick="deleteAdvance('${a.id}')">✕</button>
+  </div>`;
 }
 
 function renderCalc(obj) {
@@ -801,7 +1013,7 @@ function renderRoomDetail(obj, room) {
     <div class="section-card" style="margin-top:0;">
       <button class="back-link" onclick="selectRoom(null)">← До об'єкта</button>
       <div class="section-head">
-        <div><div class="eyebrow">Кімната</div><div class="section-title">${esc(room.name)}</div></div>
+        <div><div class="eyebrow">Робоча зона</div><div class="section-title">${esc(room.name)}</div></div>
         <button class="amber-btn" onclick="openModal('work')">+ Робота</button>
       </div>
       ${room.works.map(w => `
@@ -955,7 +1167,7 @@ function renderModal() {
     </div>`;
   }
   if (t === "room") body = `
-    <h3>Нова кімната</h3>
+    <h3>Нова робоча зона</h3>
     <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Ванна"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
@@ -1050,6 +1262,44 @@ function renderModal() {
       <button class="danger-btn" onclick="deleteObject('${o.id}')">Видалити</button>
     </div>`;
   }
+  if (t === "material") body = `
+    <h3>Новий матеріал</h3>
+    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Клей для плитки"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
+      <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="шт"></div>
+    </div>
+    <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitMaterial()">Додати</button>
+    </div>`;
+  if (t === "materialReceipt") body = `
+    <h3>Новий чек на закупівлю</h3>
+    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
+    <div class="field"><label>Дата</label><input id="m-date" type="date"></div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Напр. Будматеріали, магазин"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitMaterialReceipt()">Додати</button>
+    </div>`;
+  if (t === "materialPayment") body = `
+    <h3>Нова оплата постачальнику</h3>
+    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
+    <div class="field"><label>Дата</label><input id="m-date" type="date"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitMaterialPayment()">Додати</button>
+    </div>`;
+  if (t === "advance") body = `
+    <h3>Новий аванс від замовника</h3>
+    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
+    <div class="field"><label>Дата</label><input id="m-date" type="date"></div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitAdvance()">Додати</button>
+    </div>`;
   return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
 }
 
@@ -1104,13 +1354,31 @@ function submitAddToObject(priceId) {
   if (!objId || !roomId) return;
   addPriceToObject(priceId, objId, roomId, qty);
 }
+function submitMaterial() {
+  const n = val("m-name"); if (!n) return;
+  createMaterial(n, val("m-qty"), val("m-unit")||"шт", val("m-price"));
+}
+function submitMaterialReceipt() {
+  const amount = Number(val("m-amount")); if (!amount) return;
+  createMaterialReceipt(amount, val("m-date"), val("m-note"));
+}
+function submitMaterialPayment() {
+  const amount = Number(val("m-amount")); if (!amount) return;
+  createMaterialPayment(amount, val("m-date"));
+}
+function submitAdvance() {
+  const amount = Number(val("m-amount")); if (!amount) return;
+  createAdvance(amount, val("m-date"), val("m-note"));
+}
 
 /* expose to inline handlers */
 Object.assign(window, { setNav, selectObject, selectRoom, setQuick, openModal, closeModal,
   toggleWork, deleteWork, cycleObjectStatus, submitObject, submitRoom, submitWork,
   deletePriceItem, fillFromPrice, submitPrice, deleteClient, submitClient, selectClient,
   setAddToObjectObj, submitAddToObject, setObjSearch, toggleGroup, toggleActionMenu,
-  closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange });
+  closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
+  toggleMaterialPaid, deleteMaterial, deleteMaterialReceipt, deleteMaterialPayment, deleteAdvance,
+  submitMaterial, submitMaterialReceipt, submitMaterialPayment, submitAdvance });
 
 render();
 </script>
