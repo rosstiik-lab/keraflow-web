@@ -124,6 +124,19 @@ input, select { font-family: inherit; }
 }
 .search-wrap input::placeholder { color: var(--muted); }
 
+/* ---------- Combobox (price item search) ---------- */
+.combo-dropdown {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 45;
+  max-height: 240px; overflow-y: auto;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45); padding: 6px;
+}
+.combo-item { padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.combo-item:hover { background: var(--panel); }
+.combo-item-name { font-weight: 700; font-size: 13px; color: var(--text); }
+.combo-item-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.combo-empty { padding: 10px; font-size: 12.5px; color: var(--muted); }
+
 .group-toggle {
   display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: none;
   padding: 14px 0 8px; color: var(--muted);
@@ -592,9 +605,23 @@ function linkedPriceItem(work) {
   if (!work.priceItemId) return null;
   return (state.data.priceItems || []).find(p => p.id === work.priceItemId) || null;
 }
-function setWorkPriceItem(id) {
+function setWorkSearchQuery(q) {
   if (!state.modal) return;
-  state.modal.priceItemId = id || null;
+  state.modal.pqQuery = q; state.modal.pqOpen = true; state.modal.priceItemId = null;
+  render();
+}
+function openWorkSearchDropdown() {
+  if (!state.modal || state.modal.pqOpen) return;
+  state.modal.pqOpen = true;
+  render();
+}
+function pickWorkPriceItem(id) {
+  if (!state.modal) return;
+  const p = (state.data.priceItems || []).find(p => p.id === id);
+  state.modal.priceItemId = id;
+  state.modal.pqQuery = p ? p.name : "";
+  state.modal.pqOpen = false;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   render();
 }
 /* ---------- Materials ---------- */
@@ -1390,16 +1417,28 @@ function renderModal() {
         </div>`;
       } else {
         const selPriceItem = state.modal.priceItemId ? priceItems.find(p => p.id === state.modal.priceItemId) : null;
+        const query = state.modal.pqQuery !== undefined ? state.modal.pqQuery : "";
+        const dropdownOpen = !!state.modal.pqOpen;
+        const matches = priceItems.filter(p => priceMatchesSearch(p, query));
         body = `
         <h3>Нова робота</h3>
-        <div class="field"><label>Позиція з прайсу</label>
-          <select id="m-priceitem" onchange="setWorkPriceItem(this.value)">
-            <option value="">— оберіть позицію —</option>
-            ${priceItems.map(p => `<option value="${p.id}" ${state.modal.priceItemId===p.id?"selected":""}>${esc(p.name)} · ${esc(p.category||"Без категорії")} · ${p.price} €/${esc(p.unit)}</option>`).join("")}
-          </select>
+        <div class="field" style="position:relative;">
+          <label>Позиція з прайсу</label>
+          <input id="m-worksearch" placeholder="Почніть вводити назву роботи…" autocomplete="off"
+            value="${esc(query)}"
+            oninput="setWorkSearchQuery(this.value)"
+            onfocus="openWorkSearchDropdown()">
+          ${dropdownOpen ? `
+          <div class="combo-dropdown">
+            ${matches.length ? matches.map(p => `
+              <div class="combo-item" onmousedown="event.preventDefault(); pickWorkPriceItem('${p.id}')">
+                <div class="combo-item-name">${esc(p.name)}</div>
+                <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
+              </div>
+            `).join("") : `<div class="combo-empty">Нічого не знайдено. Перевірте прайс.</div>`}
+          </div>` : ""}
         </div>
         ${selPriceItem ? `
-          <div class="field"><label>Назва</label><input value="${esc(selPriceItem.name)}" disabled></div>
           <div style="display:flex;gap:10px;">
             <div class="field" style="flex:1"><label>Категорія</label><input value="${esc(selPriceItem.category||"Без категорії")}" disabled></div>
             <div class="field" style="flex:1"><label>Одиниця</label><input value="${esc(selPriceItem.unit)}" disabled></div>
@@ -1666,7 +1705,8 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   toggleMaterialPaid, deleteMaterial, deleteMaterialReceipt, deleteMaterialPayment, deleteAdvance,
   submitMaterial, submitMaterialReceipt, submitMaterialPayment, submitAdvance,
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
-  submitPriceCategory, submitPriceUnit, deletePriceUnit, setWorkPriceItem });
+  submitPriceCategory, submitPriceUnit, deletePriceUnit,
+  setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem });
 
 render();
 </script>
