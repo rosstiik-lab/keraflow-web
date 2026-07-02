@@ -98,10 +98,6 @@ input, select { font-family: inherit; }
   width: 100%; margin-top: 14px; padding: 11px; border-radius: 12px; border: 1px dashed var(--line);
   background: none; color: var(--muted); font-weight: 700; font-size: 12.5px;
 }
-.pill { display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
-.pill.active { background: var(--amber-soft); color: var(--amber); }
-.pill.planned { background: rgba(140,148,163,0.15); color: var(--muted); }
-.pill.done { background: rgba(61,214,140,0.15); color: var(--green); }
 
 /* ---------- Object list ---------- */
 .obj-row {
@@ -165,31 +161,18 @@ input, select { font-family: inherit; }
 
 /* ---------- Object detail ---------- */
 .obj-header { position: sticky; top: 0; z-index: 15; background: var(--bg); padding-top: 2px; }
-.obj-header.compact .obj-header-full { display: none; }
-.obj-header-compact-row { display: none; align-items: center; gap: 12px; padding: 10px 2px; }
-.obj-header.compact .obj-header-compact-row { display: flex; }
+.obj-header-compact-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; }
 .obj-header-compact-ring { position: relative; width: 48px; height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .obj-header-compact-ring .pct { position: absolute; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 800; color: var(--amber); }
 .obj-header-compact-title { font-size: 16px; font-weight: 800; }
 .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .btn-row .ghost-btn { flex: 1; min-width: 140px; text-align: center; }
-.top-gradient { height: 5px; border-radius: 999px; background: linear-gradient(90deg, var(--blue), var(--green)); margin-bottom: 16px; }
 .banner-card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px;
   display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
 }
 .banner-title { font-size: 26px; font-weight: 800; margin-top: 10px; }
 .banner-addr { color: var(--muted); font-size: 13px; margin-top: 6px; }
-.ring-card {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px; padding: 14px 18px;
-  display: flex; align-items: center; gap: 14px; flex-shrink: 0;
-}
-.ring-wrap { position: relative; width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; }
-.ring-value { position: absolute; text-align: center; }
-.ring-value .mono { font-size: 22px; font-weight: 800; color: var(--amber); }
-.ring-value .cap { font-size: 9px; color: var(--muted); font-weight: 700; letter-spacing: .06em; }
-.ring-caption { font-size: 11px; color: var(--muted); max-width: 130px; line-height: 1.4; }
-.ring-caption b { color: var(--text); display: block; font-size: 12px; margin-bottom: 3px; }
 
 .section-card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px; margin-top: 18px; }
 .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
@@ -301,7 +284,7 @@ const OBJ_STATUS = {
   done:    { label: "Завершено",  cls: "done" },
 };
 
-const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акти","Розрахунок","Примітки"];
+const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акти","Примітки"];
 
 const seedData = {
   priceItems: [
@@ -519,14 +502,6 @@ function createWork(name, unit, qty, price) {
   o.updatedAt = Date.now();
   saveData(); closeModal();
 }
-function cycleObjectStatus() {
-  const o = getObj(); if (!o) return;
-  const order = ["planned","active","done"];
-  o.status = order[(order.indexOf(o.status)+1) % order.length];
-  o.updatedAt = Date.now();
-  saveData(); render();
-}
-
 /* ---------- Materials ---------- */
 function createMaterial(name, qty, unit, price) {
   const o = getObj(); if (!o) return;
@@ -642,13 +617,6 @@ function deleteClient(id) {
 }
 
 /* ---------- Render ---------- */
-function syncObjHeaderCompact() {
-  const header = document.getElementById("obj-header");
-  if (!header) return;
-  header.classList.toggle("compact", window.scrollY > 40);
-}
-window.addEventListener("scroll", syncObjHeaderCompact, { passive: true });
-
 function render() {
   const active = document.activeElement;
   const activeId = active && active.id;
@@ -672,7 +640,6 @@ function render() {
       }
     }
   }
-  syncObjHeaderCompact();
 }
 
 function renderSidebar() {
@@ -814,29 +781,9 @@ function renderObjectDetail(obj) {
   if (room) return renderRoomDetail(obj, room);
 
   const p = objectProgress(obj);
-  const st = OBJ_STATUS[obj.status];
-  const client = obj.clientId ? getClient(obj.clientId) : null;
   return `
     <button class="back-link" onclick="selectObject(null)">← До списку об'єктів</button>
     <div class="obj-header" id="obj-header">
-      <div class="obj-header-full">
-        <div class="top-gradient"></div>
-        <div class="banner-card">
-          <div>
-            <span class="pill ${st.cls}" style="cursor:pointer" title="Натисніть, щоб змінити статус" onclick="cycleObjectStatus()">${st.label}</span>
-            <div class="banner-title">${esc(obj.name)}</div>
-            <div class="banner-addr">📍 ${esc(obj.address)}</div>
-            ${client ? `<div class="banner-addr">👤 ${esc(client.name)}${client.phone ? " · " + esc(client.phone) : ""}</div>` : ""}
-          </div>
-          <div class="ring-card">
-            <div class="ring-wrap">
-              ${ringSvg(p)}
-              <div class="ring-value"><div class="mono">${p}%</div><div class="cap">ГОТОВО</div></div>
-            </div>
-            <div class="ring-caption"><b>Готовність об'єкта</b>Прогрес за кімнатами та роботами.</div>
-          </div>
-        </div>
-      </div>
       <div class="obj-header-compact-row">
         <div class="obj-header-compact-ring">${ringSvg(p, 48, 5)}<span class="pct">${p}%</span></div>
         <div class="obj-header-compact-title">${esc(obj.name)}</div>
@@ -844,9 +791,6 @@ function renderObjectDetail(obj) {
     </div>
 
     <div class="section-card">
-      <div class="section-head">
-        <div><div class="eyebrow">Робоча область об'єкта</div><div class="section-title">Керування всередині об'єкта</div></div>
-      </div>
       <div class="quick-grid">
         ${QUICK_ACTIONS.map(q => `<button class="quick-btn ${state.quick===q?"selected":""}" onclick="setQuick('${q}')">${q}</button>`).join("")}
       </div>
@@ -856,7 +800,7 @@ function renderObjectDetail(obj) {
       ${renderQuickContent(obj)}
     </div>
 
-    ${renderCalc(obj)}
+    ${state.quick === "Оплата" ? renderCalc(obj) : ""}
   `;
 }
 
@@ -1373,7 +1317,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { setNav, selectObject, selectRoom, setQuick, openModal, closeModal,
-  toggleWork, deleteWork, cycleObjectStatus, submitObject, submitRoom, submitWork,
+  toggleWork, deleteWork, submitObject, submitRoom, submitWork,
   deletePriceItem, fillFromPrice, submitPrice, deleteClient, submitClient, selectClient,
   setAddToObjectObj, submitAddToObject, setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
