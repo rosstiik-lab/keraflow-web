@@ -345,12 +345,13 @@ let state = {
   nav: "objects",
   selectedObjId: null,
   selectedRoomId: null,
+  selectedZoneId: null,
   selectedClientId: null,
   quick: "Робота",
   objSearch: "",
   openActionMenuId: null,
   data: loadData(),
-  modal: null, // { type: 'object'|'room'|'work'|'price'|'client'|'addToObject'|'deleteObject' }
+  modal: null, // { type: 'object'|'room'|'work'|'price'|'client'|'addToObject'|'deleteObject'|'zone' }
 };
 
 function migrateData(data) {
@@ -364,6 +365,7 @@ function migrateData(data) {
     if (o.materialReceipts === undefined) o.materialReceipts = [];
     if (o.materialPayments === undefined) o.materialPayments = [];
     if (o.advances === undefined) o.advances = [];
+    if (o.zones === undefined) o.zones = [];
   });
   data.collapsedGroups = data.collapsedGroups || {};
   return data;
@@ -427,13 +429,14 @@ function objectSumLeft(obj) { return obj.rooms.reduce((s,r) => s + roomSumLeft(r
 
 /* ---------- Actions ---------- */
 function setNav(key) {
-  state.nav = key; state.selectedRoomId = null;
+  state.nav = key; state.selectedRoomId = null; state.selectedZoneId = null;
   if (key === "objects") state.selectedObjId = null;
   render();
 }
-function selectObject(id) { state.selectedObjId = id; state.selectedRoomId = null; render(); }
+function selectObject(id) { state.selectedObjId = id; state.selectedRoomId = null; state.selectedZoneId = null; render(); }
 function selectRoom(id) { state.selectedRoomId = id; render(); }
-function setQuick(q) { state.quick = q; render(); }
+function selectZone(id) { state.selectedZoneId = id; render(); }
+function setQuick(q) { state.quick = q; state.selectedZoneId = null; render(); }
 function selectClient(id) { state.selectedClientId = id; render(); }
 function openModal(type, id) { state.modal = { type, id: id || null }; render(); }
 function closeModal() { state.modal = null; render(); }
@@ -492,7 +495,19 @@ function toggleArchiveObject(id) {
 }
 function createRoom(name) {
   const o = getObj(); if (!o) return;
-  o.rooms.push({ id: uid("room"), name, works: [] });
+  const room = { id: uid("room"), name, works: [] };
+  o.rooms.push(room);
+  if (state.selectedZoneId) {
+    const zone = (o.zones||[]).find(z => z.id === state.selectedZoneId);
+    if (zone) zone.roomIds.push(room.id);
+  }
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function createZone(name) {
+  const o = getObj(); if (!o) return;
+  o.zones = o.zones || [];
+  o.zones.push({ id: uid("zone"), name, roomIds: [] });
   o.updatedAt = Date.now();
   saveData(); closeModal();
 }
@@ -828,15 +843,55 @@ function roomCardHtml(r) {
   </div>`;
 }
 
+function zoneCardHtml(obj, zone) {
+  const zoneRooms = obj.rooms.filter(r => zone.roomIds.includes(r.id));
+  const progresses = zoneRooms.map(roomProgress);
+  const avgProgress = progresses.length ? Math.round(progresses.reduce((a,b)=>a+b,0)/progresses.length) : 0;
+  return `<div class="room-card" onclick="selectZone('${zone.id}')">
+    <div class="room-head">
+      <div><div class="room-name">${esc(zone.name)}</div><div class="room-count">${zoneRooms.length} робочих зон</div></div>
+      <div class="pct-pill mono">${avgProgress}%</div>
+    </div>
+  </div>`;
+}
+
+function renderZoneRoomsView(obj, zone) {
+  const zoneRooms = obj.rooms.filter(r => zone.roomIds.includes(r.id));
+  return `
+    <button class="back-link" onclick="selectZone(null)">← Назад</button>
+    <div class="section-head">
+      <div><div class="eyebrow">Загальна зона</div><div class="section-title">${esc(zone.name)}</div></div>
+    </div>
+    <div class="room-grid">
+      ${zoneRooms.map(roomCardHtml).join("")}
+    </div>
+    ${zoneRooms.length===0 ? `<div class="empty-slot" style="margin-top:14px;">У цій зоні ще немає робочих зон.</div>` : ""}
+    <button class="dashed-btn" onclick="openModal('room')">+ Додати робочу зону</button>
+  `;
+}
+
 function renderWorkspaceTab(obj) {
+  const zones = obj.zones || [];
+  if (state.selectedZoneId) {
+    const zone = zones.find(z => z.id === state.selectedZoneId);
+    if (zone) return renderZoneRoomsView(obj, zone);
+  }
+
+  const zonedRoomIds = new Set(zones.flatMap(z => z.roomIds));
+  const unzonedRooms = obj.rooms.filter(r => !zonedRoomIds.has(r.id));
+
   return `
     <div class="section-head">
       <div><div class="eyebrow">Робота</div><div class="section-title">Робочі зони об'єкта</div></div>
     </div>
-    <div class="room-grid">
-      ${obj.rooms.map(roomCardHtml).join("")}
+    <button class="ghost-btn" onclick="openModal('zone')">+ Додати загальну зону</button>
+
+    ${zones.length ? `<div class="room-grid" style="margin-top:14px;">${zones.map(z => zoneCardHtml(obj, z)).join("")}</div>` : ""}
+    ${zones.length ? `<div class="group-label">Без зони</div>` : ""}
+    <div class="room-grid" ${zones.length ? "" : 'style="margin-top:18px;"'}>
+      ${unzonedRooms.map(roomCardHtml).join("")}
     </div>
-    ${obj.rooms.length===0 ? `<div class="empty-slot" style="margin-top:14px;">Створіть першу робочу зону.</div>` : ""}
+    ${unzonedRooms.length===0 ? `<div class="empty-slot" style="margin-top:14px;">${zones.length ? "Усі робочі зони віднесено до загальних зон." : "Створіть першу робочу зону."}</div>` : ""}
     <button class="dashed-btn" onclick="openModal('room')">+ Додати робочу зону</button>
   `;
 }
@@ -1117,6 +1172,13 @@ function renderModal() {
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitRoom()">Створити</button>
     </div>`;
+  if (t === "zone") body = `
+    <h3>Нова загальна зона</h3>
+    <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Поверх 1"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitZone()">Створити</button>
+    </div>`;
   if (t === "work") body = `
     <h3>Нова робота</h3>
     ${(state.data.priceItems||[]).length ? `
@@ -1258,6 +1320,7 @@ function submitObject(id) {
   else createObject(n, addr, clientId, startDate, note);
 }
 function submitRoom() { const n = val("m-name"); if (!n) return; createRoom(n); }
+function submitZone() { const n = val("m-name"); if (!n) return; createZone(n); }
 function submitWork() { const n = val("m-name"); if (!n) return; createWork(n, val("m-unit")||"шт", val("m-qty"), val("m-price")); }
 function submitPrice(id) {
   const n = val("m-name"); if (!n) return;
@@ -1316,8 +1379,8 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { setNav, selectObject, selectRoom, setQuick, openModal, closeModal,
-  toggleWork, deleteWork, submitObject, submitRoom, submitWork,
+Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+  toggleWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, fillFromPrice, submitPrice, deleteClient, submitClient, selectClient,
   setAddToObjectObj, submitAddToObject, setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
