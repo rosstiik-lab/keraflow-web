@@ -210,13 +210,27 @@ input, select { font-family: inherit; }
 
 const STORAGE_KEY = "keraflow-data";
 
+/* ---------- Icons (linear SVG, Lucide/Feather style) ---------- */
+const ICON_PATHS = {
+  objects:  `<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/>`,
+  clients:  `<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
+  price:    `<path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.5"/>`,
+  directory:`<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>`,
+  workers:  `<path d="M4 18a8 8 0 0 1 16 0"/><path d="M2 18h20"/><path d="M12 10V6"/>`,
+  settings: `<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.12 2.12M17.68 17.68l2.12 2.12M2 12h3M19 12h3M4.2 19.8l2.12-2.12M17.68 6.32l2.12-2.12"/>`,
+};
+function svgIcon(key, size) {
+  size = size || 22;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[key] || ""}</svg>`;
+}
+
 const NAV_ITEMS = [
-  { key: "objects",   label: "Об'єкти",      ico: "🏗" },
-  { key: "clients",   label: "Замовники",    ico: "👥" },
-  { key: "price",     label: "Прайс",        ico: "💰" },
-  { key: "directory", label: "Довідник",     ico: "📒" },
-  { key: "workers",   label: "Працівники",   ico: "🧑‍🔧" },
-  { key: "settings",  label: "Налаштування", ico: "⚙️" },
+  { key: "objects",   label: "Об'єкти" },
+  { key: "clients",   label: "Замовники" },
+  { key: "price",     label: "Прайс" },
+  { key: "directory", label: "Довідник" },
+  { key: "workers",   label: "Працівники" },
+  { key: "settings",  label: "Налаштування" },
 ];
 
 const OBJ_STATUS = {
@@ -426,7 +440,7 @@ function renderSidebar() {
   return `<div class="sidebar">
     ${NAV_ITEMS.map(i => `
       <button class="side-item ${state.nav===i.key?"active":""}" title="${i.label}" onclick="setNav('${i.key}')">
-        <span class="side-item-ico">${i.ico}</span>
+        <span class="side-item-ico">${svgIcon(i.key)}</span>
         <span class="side-item-lbl">${i.label}</span>
       </button>
     `).join("")}
@@ -439,7 +453,7 @@ function renderBottomBar() {
   return `<div class="bottombar">
     ${NAV_ITEMS.map(i => `
       <button class="bottom-item ${state.nav===i.key?"active":""}" onclick="setNav('${i.key}')">
-        <span class="ico">${i.ico}</span>${i.label}
+        <span class="ico">${svgIcon(i.key, 20)}</span>${i.label}
       </button>
     `).join("")}
   </div>`;
@@ -450,8 +464,8 @@ function renderPage() {
     case "objects":   return renderObjects();
     case "clients":   return renderClients();
     case "price":     return renderPrice();
-    case "directory": return renderPlaceholder("📒","Довідник","Модуль у розробці.");
-    case "workers":   return renderPlaceholder("🧑‍🔧","Працівники","Модуль у розробці.");
+    case "directory": return renderPlaceholder(svgIcon("directory",40),"Довідник","Модуль у розробці.");
+    case "workers":   return renderPlaceholder(svgIcon("workers",40),"Працівники","Модуль у розробці.");
     case "settings":  return renderSettings();
   }
 }
@@ -459,7 +473,7 @@ function renderPage() {
 function objRowHtml(o) {
   const sel = o.id === state.selectedObjId;
   return `<div class="obj-row ${sel?"selected":""}" onclick="setNav('objects'); selectObject('${o.id}')">
-    <div class="obj-row-icon">🏗</div>
+    <div class="obj-row-icon">${svgIcon("objects", 18)}</div>
     <div>
       <div class="obj-row-name">${esc(o.name)}</div>
       <div class="obj-row-addr">${esc(o.address)}</div>
@@ -477,7 +491,7 @@ function renderObjects() {
 function objListRowHtml(o) {
   const client = o.clientId ? getClient(o.clientId) : null;
   return `<div class="obj-row" onclick="selectObject('${o.id}')">
-    <div class="obj-row-icon">🏗</div>
+    <div class="obj-row-icon">${svgIcon("objects", 18)}</div>
     <div>
       <div class="obj-row-name">${esc(o.name)}</div>
       <div class="obj-row-addr">📍 ${esc(o.address)}</div>
@@ -676,7 +690,7 @@ function renderClients() {
 function clientRowHtml(c) {
   const sel = c.id === state.selectedClientId;
   return `<div class="obj-row ${sel?"selected":""}" onclick="selectClient('${c.id}')">
-    <div class="obj-row-icon">👤</div>
+    <div class="obj-row-icon">${svgIcon("clients", 18)}</div>
     <div>
       <div class="obj-row-name">${esc(c.name)}</div>
       ${c.phone ? `<div class="obj-row-addr">📞 ${esc(c.phone)}</div>` : ""}
@@ -687,7 +701,7 @@ function clientRowHtml(c) {
 
 function renderClientDetail() {
   const c = getClient(state.selectedClientId);
-  if (!c) return `<div class="panel placeholder"><div class="big">👥</div><div class="t">Оберіть замовника</div>Або створіть першого замовника зліва.</div>`;
+  if (!c) return `<div class="panel placeholder"><div class="big">${svgIcon("clients", 40)}</div><div class="t">Оберіть замовника</div>Або створіть першого замовника зліва.</div>`;
   const objs = (state.data.objects || []).filter(o => o.clientId === c.id);
   return `
     <div class="banner-card">
