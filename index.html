@@ -307,23 +307,27 @@ input, select { font-family: inherit; }
 .placeholder .big { font-size: 40px; margin-bottom: 12px; }
 .placeholder .t { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
 
-/* ---------- Act document ---------- */
+/* ---------- Act document (справжній офісний документ, світла тема) ---------- */
+.act-doc {
+  background: #fdfcf9; color: #1a1a1a; border: 1px solid #ddd; border-radius: 8px; padding: 16px;
+}
 .act-doc-head { margin-bottom: 14px; }
-.act-doc-title { font-size: 17px; font-weight: 800; }
-.act-doc-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.act-doc-title { font-size: 17px; font-weight: 800; color: #1a1a1a; }
+.act-doc-sub { font-size: 12px; color: #555; margin-top: 3px; }
 .act-table-wrap { overflow-x: auto; }
-.act-table { width: 100%; border-collapse: collapse; font-size: 11.5px; min-width: 480px; }
-.act-table th, .act-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
-.act-table th { background: var(--panel-2); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
+.act-table { width: 100%; border-collapse: collapse; font-size: 11.5px; min-width: 480px; background: #fff; }
+.act-table th, .act-table td { border: 1px solid #999; padding: 6px 8px; text-align: left; vertical-align: top; color: #1a1a1a; }
+.act-table th { background: #EDEAE4; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
 .act-table td.num, .act-table th.num { text-align: right; white-space: nowrap; }
-.act-zone-row td { background: var(--amber-soft); color: var(--amber); font-weight: 800; }
-.act-room-row td { background: var(--panel-2); font-weight: 700; }
-.act-sum-row td { text-align: right; font-weight: 700; }
-.act-zone-sum-row td { text-align: right; font-weight: 800; background: var(--panel-2); }
-.act-doc-summary { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
-.act-total { font-size: 16px; font-weight: 800; }
-.act-advance-row { font-size: 12px; color: var(--muted); margin-top: 6px; }
-.act-remainder { font-size: 15px; font-weight: 800; margin-top: 10px; }
+.act-zone-row td { background: #F5E6A8; font-weight: 800; }
+.act-room-row td { background: #F0EDE8; font-weight: 700; }
+.act-sum-row td.blank { background: #fff; }
+.act-sum-row td.sum-cell { background: #B2F0E0; font-weight: 700; text-align: right; }
+.act-zone-sum-row td { background: #A8C8F0; font-weight: 800; }
+.act-doc-summary { margin-top: 16px; padding-top: 14px; border-top: 1px solid #999; }
+.act-total { font-size: 16px; font-weight: 800; color: #1a1a1a; }
+.act-advance-row { font-size: 12px; color: #555; margin-top: 6px; }
+.act-remainder { font-size: 15px; font-weight: 800; margin-top: 10px; color: #1a1a1a; }
 
 /* ---------- Print (замовницький звіт / акт) ---------- */
 @media print {
@@ -331,12 +335,9 @@ input, select { font-family: inherit; }
   .print-report, .print-report * { visibility: visible; }
   .print-report { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; }
   body:has(.act-doc) { background: #fff; }
-  .act-doc, .act-doc * { color: #000 !important; }
-  .act-doc .act-table th, .act-doc .act-table td { border: 1px solid #000 !important; }
-  .act-doc .act-table th, .act-doc .act-zone-row td, .act-doc .act-room-row td, .act-doc .act-zone-sum-row td {
-    background: #eee !important;
-  }
-  .act-doc .act-doc-summary { border-top: 1px solid #000; }
+  .act-doc, .act-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .act-doc { border: none; }
+  .act-table th, .act-table td { border: 1px solid #999; }
 }
 </style>
 </head>
@@ -2205,7 +2206,7 @@ function renderModal() {
             <td class="num">${fmtActEUR(e.qty*e.price)}</td>
           </tr>
         `).join("")}
-        <tr class="act-sum-row"><td colspan="6">Всього ${fmtActEUR(roomSum)}</td></tr>
+        <tr class="act-sum-row"><td class="blank" colspan="4"></td><td class="sum-cell" colspan="2">Всього ${fmtActEUR(roomSum)}</td></tr>
       `;
     };
     const zoneBlocksHtml = zoneGroups.map(g => {
@@ -2213,7 +2214,7 @@ function renderModal() {
       return `
         <tr class="act-zone-row"><td colspan="6">${esc(g.zoneName)}</td></tr>
         ${g.rooms.map(roomRowsHtml).join("")}
-        <tr class="act-zone-sum-row"><td colspan="6">Всього ${esc(g.zoneName)} ${fmtActEUR(zoneSum)}</td></tr>
+        <tr class="act-zone-sum-row"><td colspan="5">Всього за зону ${esc(g.zoneName)}</td><td class="num">${fmtActEUR(zoneSum)}</td></tr>
       `;
     }).join("");
     const unzonedBlocksHtml = unzonedRooms.map(roomRowsHtml).join("");
@@ -2232,7 +2233,7 @@ function renderModal() {
         <table class="act-table">
           <thead>
             <tr>
-              <th>№</th><th>Найменування робіт</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна в EUR</th><th class="num">Всього в EUR</th>
+              <th>№</th><th>Найменування робіт</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна, EUR</th><th class="num">Всього, EUR</th>
             </tr>
           </thead>
           <tbody>
