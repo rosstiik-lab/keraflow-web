@@ -1059,13 +1059,14 @@ function renderObjectDetail(obj) {
         <div class="obj-header-compact-ring">${ringSvg(p, 48, 5)}<span class="pct">${p}%</span></div>
         <div class="obj-header-compact-title">${esc(obj.name)}</div>
       </div>
-      ${state.quick === "Матеріал" ? renderMaterialsHeaderStats(obj) : ""}
-    </div>
 
-    <div class="section-card">
-      <div class="quick-grid">
-        ${QUICK_ACTIONS.map(q => `<button class="quick-btn ${state.quick===q?"selected":""}" onclick="setQuick('${q}')">${q}</button>`).join("")}
+      <div class="section-card">
+        <div class="quick-grid">
+          ${QUICK_ACTIONS.map(q => `<button class="quick-btn ${state.quick===q?"selected":""}" onclick="setQuick('${q}')">${q}</button>`).join("")}
+        </div>
       </div>
+
+      ${state.quick === "Матеріал" ? renderMaterialsHeaderStats(obj) : ""}
     </div>
 
     <div class="section-card">
