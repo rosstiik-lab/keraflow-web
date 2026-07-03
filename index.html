@@ -833,7 +833,7 @@ function deleteAdvance(id) {
   const o = getObj(); if (!o) return;
   o.advances = (o.advances||[]).filter(a => a.id !== id);
   o.updatedAt = Date.now();
-  saveData(); render();
+  saveData(); closeModal();
 }
 
 /* ---------- Price list ---------- */
@@ -1312,10 +1312,10 @@ function renderAdvancesTab(obj) {
     <div class="section-head">
       <div><div class="eyebrow">Оплата</div><div class="section-title">Аванси від замовника</div></div>
     </div>
-    <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
+    <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); margin-bottom: 14px;">
       <div class="mini-stat"><div class="mini-stat-label">ОТРИМАНО АВАНСІВ</div><div class="mini-stat-val amber mono">${fmtEUR(total)}</div></div>
     </div>
-    ${advances.map(advanceRowHtml).join("") || `<div class="empty-slot" style="margin-top:14px;">Ще немає жодного авансу.</div>`}
+    ${advances.map(advanceRowHtml).join("") || `<div class="empty-slot">Ще немає жодного авансу.</div>`}
     <button class="dashed-btn" onclick="openModal('advance')">+ Додати аванс</button>
   `;
 }
@@ -1325,7 +1325,7 @@ function advanceRowHtml(a) {
       <div class="w-name">${fmtEUR(a.amount)}</div>
       <div class="w-meta"><span class="mono">${esc(a.date||"—")}</span>${a.note?`<span>${esc(a.note)}</span>`:""}</div>
     </div>
-    <button class="w-del" title="Видалити" onclick="deleteAdvance('${a.id}')">✕</button>
+    <button class="w-del" title="Видалити" onclick="openModal('deleteAdvance','${a.id}')">✕</button>
   </div>`;
 }
 
@@ -1343,7 +1343,7 @@ function renderCalc(obj) {
       <div class="section-head">
         <div><div class="eyebrow">Кошторис</div><div class="section-title">Розрахунок</div></div>
       </div>
-      <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 14px;">
+      <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 14px; margin-bottom: 14px;">
         <div class="mini-stat"><div class="mini-stat-label">ВИКОНАНО</div><div class="mini-stat-val green mono">${fmtEUR(done)}</div></div>
         <div class="mini-stat"><div class="mini-stat-label">ЗАЛИШИЛОСЬ</div><div class="mini-stat-val amber mono">${fmtEUR(left)}</div></div>
         <div class="mini-stat"><div class="mini-stat-label">РАЗОМ ПО ОБ'ЄКТУ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
@@ -1357,7 +1357,7 @@ function renderCalc(obj) {
           </div>
           <div class="mono" style="font-weight:800;">${fmtEUR(roomSum(r))}</div>
         </div>
-      `).join("") : `<div class="empty-slot" style="margin-top:14px;">Немає кімнат для розрахунку.</div>`}
+      `).join("") : `<div class="empty-slot">Немає кімнат для розрахунку.</div>`}
     </div>
   `;
 }
@@ -1764,6 +1764,19 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="danger-btn" onclick="deleteZone('${z.id}')">Видалити</button>
+    </div>`;
+  }
+  if (t === "deleteAdvance") {
+    const o = getObj();
+    const a = o ? (o.advances||[]).find(a => a.id === state.modal.id) : null;
+    if (a) body = `
+    <h3>Видалити аванс?</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+      Видалити аванс ${fmtEUR(a.amount)} від ${esc(a.date||"—")}?
+    </p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="danger-btn" onclick="deleteAdvance('${a.id}')">Видалити</button>
     </div>`;
   }
   if (t === "material") {
