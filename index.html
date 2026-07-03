@@ -1223,15 +1223,15 @@ function renderMaterialsTab(obj) {
       <div><div class="eyebrow">Матеріал</div><div class="section-title">Матеріали об'єкта</div></div>
     </div>
 
-    ${feedEntries.length ? feedEntries.map(e => e.kind === "item" ? feedItemRowHtml(e.item) : reportCardHtml(obj, e.report)).join("") : `<div class="empty-slot">Ще немає жодного запису.</div>`}
-
     <div class="btn-row">
       <button class="ghost-btn" onclick="openModal('material')">+ Додати матеріал</button>
       <button class="ghost-btn" onclick="openModal('materialPayment')">+ Додати оплату</button>
-      <button class="ghost-btn" onclick="openMaterialsReportPreview()">📄 Звіт для замовника</button>
+      <button class="ghost-btn" onclick="openMaterialsReportPreview()">Звіт для замовника</button>
       <button class="ghost-btn" onclick="openModal('materialReportsHistory')">Історія звітів</button>
       <button class="ghost-btn" onclick="openModal('materialPaymentsHistory')">Історія оплат</button>
     </div>
+
+    ${feedEntries.length ? feedEntries.map(e => e.kind === "item" ? feedItemRowHtml(e.item) : reportCardHtml(obj, e.report)).join("") : `<div class="empty-slot">Ще немає жодного запису.</div>`}
   `;
 }
 
