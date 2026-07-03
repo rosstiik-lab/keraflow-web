@@ -1333,6 +1333,8 @@ function renderCalc(obj) {
   const total = objectSum(obj);
   const done = objectSumDone(obj);
   const left = objectSumLeft(obj);
+  const advancesTotal = (obj.advances||[]).reduce((s,a) => s + a.amount, 0);
+  const balance = Math.max(total - advancesTotal, 0);
   return `
     <div class="section-card">
       <div class="section-head">
@@ -1342,6 +1344,7 @@ function renderCalc(obj) {
         <div class="mini-stat"><div class="mini-stat-label">ВИКОНАНО</div><div class="mini-stat-val green mono">${fmtEUR(done)}</div></div>
         <div class="mini-stat"><div class="mini-stat-label">ЗАЛИШИЛОСЬ</div><div class="mini-stat-val amber mono">${fmtEUR(left)}</div></div>
         <div class="mini-stat"><div class="mini-stat-label">РАЗОМ ПО ОБ'ЄКТУ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">БАЛАНС ДО ОПЛАТИ</div><div class="mini-stat-val amber mono">${fmtEUR(balance)}</div></div>
       </div>
       ${obj.rooms.length ? obj.rooms.map(r => `
         <div class="work-row" style="cursor:pointer;" onclick="selectRoom('${r.id}')">
