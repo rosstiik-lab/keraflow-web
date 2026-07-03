@@ -276,7 +276,13 @@ input, select { font-family: inherit; }
   position: fixed; inset: 0; background: rgba(6,8,12,0.65); display: flex;
   align-items: center; justify-content: center; z-index: 40; padding: 16px;
 }
-.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px; width: 100%; max-width: 360px; }
+.modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px; width: 100%; max-width: 360px;
+  max-height: 90vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 480px) {
+  .modal { max-height: 85vh; }
+}
 .modal h3 { margin: 0 0 14px; font-size: 17px; }
 .field { margin-bottom: 12px; }
 .field label { font-size: 11px; color: var(--muted); font-weight: 700; display: block; }
