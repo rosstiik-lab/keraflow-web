@@ -307,11 +307,36 @@ input, select { font-family: inherit; }
 .placeholder .big { font-size: 40px; margin-bottom: 12px; }
 .placeholder .t { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
 
-/* ---------- Print (замовницький звіт) ---------- */
+/* ---------- Act document ---------- */
+.act-doc-head { margin-bottom: 14px; }
+.act-doc-title { font-size: 17px; font-weight: 800; }
+.act-doc-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.act-table-wrap { overflow-x: auto; }
+.act-table { width: 100%; border-collapse: collapse; font-size: 11.5px; min-width: 480px; }
+.act-table th, .act-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.act-table th { background: var(--panel-2); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
+.act-table td.num, .act-table th.num { text-align: right; white-space: nowrap; }
+.act-zone-row td { background: var(--amber-soft); color: var(--amber); font-weight: 800; }
+.act-room-row td { background: var(--panel-2); font-weight: 700; }
+.act-sum-row td { text-align: right; font-weight: 700; }
+.act-zone-sum-row td { text-align: right; font-weight: 800; background: var(--panel-2); }
+.act-doc-summary { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.act-total { font-size: 16px; font-weight: 800; }
+.act-advance-row { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.act-remainder { font-size: 15px; font-weight: 800; margin-top: 10px; }
+
+/* ---------- Print (замовницький звіт / акт) ---------- */
 @media print {
   body * { visibility: hidden; }
   .print-report, .print-report * { visibility: visible; }
   .print-report { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; }
+  body:has(.act-doc) { background: #fff; }
+  .act-doc, .act-doc * { color: #000 !important; }
+  .act-doc .act-table th, .act-doc .act-table td { border: 1px solid #000 !important; }
+  .act-doc .act-table th, .act-doc .act-zone-row td, .act-doc .act-room-row td, .act-doc .act-zone-sum-row td {
+    background: #eee !important;
+  }
+  .act-doc .act-doc-summary { border-top: 1px solid #000; }
 }
 </style>
 </head>
@@ -520,6 +545,13 @@ function saveData() {
 const uid = p => `${p}-${Date.now()}-${Math.floor(Math.random()*1e4)}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const fmtEUR = n => `${n.toFixed(2)} €`;
+function fmtActEUR(n) {
+  const neg = n < 0;
+  const fixed = Math.abs(n).toFixed(2);
+  const [intPart, decPart] = fixed.split(".");
+  const withSpaces = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return `${neg?"-":""}${withSpaces},${decPart} EUR`;
+}
 const fmtDateTime = ts => new Date(ts).toLocaleString("uk-UA", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
 function timeAgo(ts) {
   if (!ts) return "—";
@@ -2132,37 +2164,88 @@ function renderModal() {
   if (t === "actView") {
     const o = getObj();
     const act = o ? (o.acts||[]).find(a => a.id === state.modal.id) : null;
-    const roomGroups = [];
+    const advances = o ? (o.advances||[]) : [];
+    const advancesTotal = advances.reduce((s,a) => s + a.amount, 0);
+    const totalSum = act ? act.totalSum : 0;
+    const remainder = totalSum - advancesTotal;
+
+    let zoneGroups = [], unzonedRooms = [];
     if (act && o) {
-      const byRoom = {};
+      const byRoom = {}; const roomOrder = [];
       act.entries.forEach(e => {
-        byRoom[e.roomId] = byRoom[e.roomId] || { name: (o.rooms.find(r=>r.id===e.roomId)||{}).name || "—", entries: [] };
-        byRoom[e.roomId].entries.push(e);
+        if (!byRoom[e.roomId]) { byRoom[e.roomId] = []; roomOrder.push(e.roomId); }
+        byRoom[e.roomId].push(e);
       });
-      Object.values(byRoom).forEach(g => roomGroups.push(g));
+      const zones = o.zones || [];
+      const zonedRoomIds = new Set(zones.flatMap(z => z.roomIds));
+      zoneGroups = zones.map(z => ({
+        zoneName: z.name,
+        rooms: roomOrder.filter(rid => z.roomIds.includes(rid)).map(rid => ({
+          roomName: (o.rooms.find(r=>r.id===rid)||{}).name || "—",
+          entries: byRoom[rid],
+        })),
+      })).filter(g => g.rooms.length);
+      unzonedRooms = roomOrder.filter(rid => !zonedRoomIds.has(rid)).map(rid => ({
+        roomName: (o.rooms.find(r=>r.id===rid)||{}).name || "—",
+        entries: byRoom[rid],
+      }));
     }
+
+    const roomRowsHtml = (room) => {
+      const roomSum = room.entries.reduce((s,e) => s + e.qty*e.price, 0);
+      return `
+        <tr class="act-room-row"><td colspan="6">${esc(room.roomName)}</td></tr>
+        ${room.entries.map((e,idx) => `
+          <tr>
+            <td>${idx+1}</td>
+            <td>${esc(e.name)}</td>
+            <td class="num">${e.qty}</td>
+            <td>${esc(e.unit)}</td>
+            <td class="num">${fmtActEUR(e.price)}</td>
+            <td class="num">${fmtActEUR(e.qty*e.price)}</td>
+          </tr>
+        `).join("")}
+        <tr class="act-sum-row"><td colspan="6">Всього ${fmtActEUR(roomSum)}</td></tr>
+      `;
+    };
+    const zoneBlocksHtml = zoneGroups.map(g => {
+      const zoneSum = g.rooms.reduce((s,r) => s + r.entries.reduce((s2,e) => s2 + e.qty*e.price, 0), 0);
+      return `
+        <tr class="act-zone-row"><td colspan="6">${esc(g.zoneName)}</td></tr>
+        ${g.rooms.map(roomRowsHtml).join("")}
+        <tr class="act-zone-sum-row"><td colspan="6">Всього ${esc(g.zoneName)} ${fmtActEUR(zoneSum)}</td></tr>
+      `;
+    }).join("");
+    const unzonedBlocksHtml = unzonedRooms.map(roomRowsHtml).join("");
+
     body = `
     <h3>Акт №${act?act.number:""}</h3>
-    <div class="print-report">
-      ${o ? `<div style="margin-bottom:12px;">
-        <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
-        ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
-        <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">Сформовано: ${act?esc(fmtDateTime(act.createdAt)):""}</div>
+    <div class="print-report act-doc">
+      ${o ? `
+      <div class="act-doc-head">
+        <div class="act-doc-title">Акт №${act?act.number:""}</div>
+        <div class="act-doc-sub">${esc(o.name)}${o.address?`, ${esc(o.address)}`:""}</div>
+        <div class="act-doc-sub">Дата формування: ${act?esc(fmtDateTime(act.createdAt)):""}</div>
       </div>` : ""}
-      ${roomGroups.length ? roomGroups.map(g => `
-        <div class="group-label">${esc(g.name)}</div>
-        ${g.entries.map(e => `
-          <div class="work-row">
-            <div style="flex:1">
-              <div class="w-name">${esc(e.name)}</div>
-              <div class="w-meta"><span class="mono">${e.qty} ${esc(e.unit)}</span>${e.price>0?`<span class="mono">${e.price} €/${esc(e.unit)}</span>`:""}</div>
-            </div>
-            <div class="mono" style="font-weight:800;">${fmtEUR(e.qty*e.price)}</div>
-          </div>
-        `).join("")}
-      `).join("") : `<div class="empty-slot">Немає позицій.</div>`}
-      <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
-        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(act?act.totalSum:0)}</div></div>
+      ${act && act.entries.length ? `
+      <div class="act-table-wrap">
+        <table class="act-table">
+          <thead>
+            <tr>
+              <th>№</th><th>Найменування робіт</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна в EUR</th><th class="num">Всього в EUR</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${zoneBlocksHtml}
+            ${unzonedBlocksHtml}
+          </tbody>
+        </table>
+      </div>
+      ` : `<div class="empty-slot">Немає позицій.</div>`}
+      <div class="act-doc-summary">
+        <div class="act-total">Всього за об'єкт: ${fmtActEUR(totalSum)}</div>
+        ${advances.map(a => `<div class="act-advance-row">Аванс ${fmtActEUR(a.amount)}</div>`).join("")}
+        <div class="act-remainder">Залишок: ${fmtActEUR(remainder)}</div>
       </div>
     </div>
     <div class="modal-actions">
