@@ -481,10 +481,12 @@ function migrateData(data) {
     });
     if (o.advances === undefined) o.advances = [];
     if (o.zones === undefined) o.zones = [];
+    if (o.acts === undefined) o.acts = [];
     (o.rooms || []).forEach(r => {
       (r.works || []).forEach(w => {
         if (w.priceItemId === undefined) w.priceItemId = null;
         if (w.note === undefined) w.note = "";
+        if (w.actId === undefined) w.actId = null;
       });
     });
   });
@@ -595,11 +597,12 @@ function closeActionMenu() { state.openActionMenuId = null; render(); }
 
 function toggleWork(workId) {
   const obj = getObj(); const room = getRoom(); if (!obj || !room) return;
-  const w = room.works.find(w => w.id === workId); if (!w) return;
+  const w = room.works.find(w => w.id === workId); if (!w || w.actId) return;
   w.done = !w.done; obj.updatedAt = Date.now(); saveData(); render();
 }
 function deleteWork(workId) {
   const obj = getObj(); const room = getRoom(); if (!obj || !room) return;
+  const w = room.works.find(w => w.id === workId); if (!w || w.actId) return;
   room.works = room.works.filter(w => w.id !== workId); obj.updatedAt = Date.now(); saveData(); render();
 }
 function createObject(name, address, clientId, startDate, note) {
@@ -692,14 +695,14 @@ function createWork(name, unit, qty, price, priceItemId, note) {
   const o = getObj(); const r = getRoom(); if (!o || !r) return;
   r.works.push({
     id: uid("w"), name, unit, qty: Number(qty)||0, price: Number(price)||0, done: false,
-    priceItemId: priceItemId || null, note: note || "",
+    priceItemId: priceItemId || null, note: note || "", actId: null,
   });
   o.updatedAt = Date.now();
   saveData(); closeModal();
 }
 function updateWork(id, fields) {
   const o = getObj(); const r = getRoom(); if (!o || !r) return;
-  const w = r.works.find(w => w.id === id); if (!w) return;
+  const w = r.works.find(w => w.id === id); if (!w || w.actId) return;
   Object.assign(w, fields);
   o.updatedAt = Date.now();
   saveData(); closeModal();
@@ -834,6 +837,71 @@ function deleteAdvance(id) {
   o.advances = (o.advances||[]).filter(a => a.id !== id);
   o.updatedAt = Date.now();
   saveData(); closeModal();
+}
+
+/* ---------- Acts (Акти) ---------- */
+function openActSelect() {
+  state.modal = { type: "actSelect", selected: {} };
+  render();
+}
+function toggleActWorkSelect(workId) {
+  if (!state.modal) return;
+  state.modal.selected = state.modal.selected || {};
+  if (state.modal.selected[workId]) delete state.modal.selected[workId];
+  else state.modal.selected[workId] = true;
+  render();
+}
+function toggleActRoomSelectAll(roomId) {
+  const o = getObj(); const room = o && o.rooms.find(r => r.id === roomId); if (!room || !state.modal) return;
+  state.modal.selected = state.modal.selected || {};
+  const availableWorks = room.works.filter(w => !w.actId);
+  const allSelected = availableWorks.length > 0 && availableWorks.every(w => state.modal.selected[w.id]);
+  availableWorks.forEach(w => {
+    if (allSelected) delete state.modal.selected[w.id];
+    else state.modal.selected[w.id] = true;
+  });
+  render();
+}
+function goToActPreview() {
+  if (!state.modal || !state.modal.selected) return;
+  if (!Object.keys(state.modal.selected).length) return;
+  state.modal = { type: "actPreview", selected: state.modal.selected };
+  render();
+}
+function backToActSelect() {
+  if (!state.modal) return;
+  state.modal = { type: "actSelect", selected: state.modal.selected || {} };
+  render();
+}
+function saveAct() {
+  const o = getObj(); if (!o || !state.modal || !state.modal.selected) return;
+  const selectedIds = Object.keys(state.modal.selected).filter(id => state.modal.selected[id]);
+  if (!selectedIds.length) return;
+  const entries = [];
+  o.rooms.forEach(r => {
+    r.works.forEach(w => {
+      if (selectedIds.includes(w.id)) entries.push({ roomId: r.id, workId: w.id, name: w.name, unit: w.unit, qty: w.qty, price: w.price });
+    });
+  });
+  if (!entries.length) return;
+  const totalSum = entries.reduce((s,e) => s + e.qty*e.price, 0);
+  o.acts = o.acts || [];
+  const number = o.acts.length + 1;
+  const actId = uid("act");
+  o.acts.push({ id: actId, number, createdAt: Date.now(), entries, totalSum });
+  entries.forEach(e => {
+    const room = o.rooms.find(r => r.id === e.roomId);
+    const work = room && room.works.find(w => w.id === e.workId);
+    if (work) work.actId = actId;
+  });
+  o.updatedAt = Date.now();
+  saveData();
+  state.modal = { type: "actView", id: actId };
+  render();
+}
+function viewAct(id) {
+  state.modal = { type: "actView", id };
+  render();
 }
 
 /* ---------- Price list ---------- */
@@ -1087,6 +1155,7 @@ function renderQuickContent(obj) {
     case "Робота":   return renderWorkspaceTab(obj);
     case "Матеріал": return renderMaterialsTab(obj);
     case "Оплата":   return renderAdvancesTab(obj);
+    case "Акти":     return renderActsTab(obj);
     default: return `<div class="empty-slot">Розділ «${esc(state.quick)}» ще не реалізовано.</div>`;
   }
 }
@@ -1329,6 +1398,26 @@ function advanceRowHtml(a) {
   </div>`;
 }
 
+function renderActsTab(obj) {
+  const acts = (obj.acts || []).slice().sort((a,b) => b.number - a.number);
+  return `
+    <div class="section-head">
+      <div><div class="eyebrow">Акти</div><div class="section-title">Акти виконаних робіт</div></div>
+    </div>
+    <button class="amber-btn" style="margin-bottom:14px;" onclick="openActSelect()">Сформувати акт</button>
+    ${acts.length ? acts.map(actRowHtml).join("") : `<div class="empty-slot">Ще не сформовано жодного акта.</div>`}
+  `;
+}
+function actRowHtml(act) {
+  return `<div class="work-row" style="cursor:pointer;" onclick="viewAct('${act.id}')">
+    <div style="flex:1">
+      <div class="w-name">Акт №${act.number}</div>
+      <div class="w-meta"><span class="mono">${esc(fmtDateTime(act.createdAt))}</span><span class="mono">${act.entries.length} поз.</span></div>
+    </div>
+    <div class="mono" style="font-weight:800;">${fmtEUR(act.totalSum)}</div>
+  </div>`;
+}
+
 function renderCalc(obj) {
   const total = objectSum(obj);
   const done = objectSumDone(obj);
@@ -1370,21 +1459,26 @@ function renderRoomDetail(obj, room) {
         <div><div class="eyebrow">Робоча зона</div><div class="section-title">${esc(room.name)}</div></div>
         <button class="amber-btn" onclick="openModal('work')">+ Робота</button>
       </div>
-      ${room.works.map(w => `
+      ${room.works.map(w => {
+        const linkedAct = w.actId ? (obj.acts||[]).find(a => a.id === w.actId) : null;
+        return `
         <div class="work-row">
-          <button class="check ${w.done?"done":""}" onclick="toggleWork('${w.id}')">${w.done?"✓":""}</button>
+          <button class="check ${w.done?"done":""}" ${linkedAct?"disabled style=\"opacity:.4;cursor:default;\"":`onclick="toggleWork('${w.id}')"`}>${w.done?"✓":""}</button>
           <div style="flex:1">
-            <div class="w-name ${w.done?"done":""}">${esc(w.name)}</div>
+            <div class="w-name ${w.done?"done":""}">${esc(w.name)}${linkedAct ? ` <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;cursor:pointer;" onclick="viewAct('${linkedAct.id}')">Акт №${linkedAct.number}</span>` : ""}</div>
             <div class="w-meta">
               <span class="mono">${w.qty} ${esc(w.unit)}</span>
               ${w.price>0 ? `<span class="mono">${w.price} €/${esc(w.unit)}</span>` : ""}
             </div>
             ${w.note ? `<div class="w-meta" style="margin-top:2px;">📝 ${esc(w.note)}</div>` : ""}
           </div>
+          ${linkedAct ? "" : `
           <button class="w-del" title="Редагувати" onclick="openModal('work','${w.id}')">✎</button>
           <button class="w-del" title="Видалити" onclick="deleteWork('${w.id}')">✕</button>
+          `}
         </div>
-      `).join("") || `<div class="empty-slot">Ще немає жодної роботи.</div>`}
+      `;
+      }).join("") || `<div class="empty-slot">Ще немає жодної роботи.</div>`}
     </div>
   `;
 }
@@ -1945,6 +2039,137 @@ function renderModal() {
       <button class="ghost-btn" onclick="closeModal()">Закрити</button>
     </div>`;
   }
+  if (t === "actSelect") {
+    const o = getObj();
+    const selected = state.modal.selected || {};
+    const zones = o ? (o.zones || []) : [];
+    const zonedRoomIds = new Set(zones.flatMap(z => z.roomIds));
+    const unzonedRooms = o ? o.rooms.filter(r => !zonedRoomIds.has(r.id)) : [];
+    const hasAnyAvailable = o ? o.rooms.some(r => r.works.some(w => !w.actId)) : false;
+    const selectedSum = o ? o.rooms.reduce((s,r) => s + r.works.reduce((s2,w) => s2 + (selected[w.id] ? w.qty*w.price : 0), 0), 0) : 0;
+    const roomBlockHtml = (r) => {
+      const availableWorks = r.works.filter(w => !w.actId);
+      if (!availableWorks.length) return "";
+      const allSelected = availableWorks.every(w => selected[w.id]);
+      return `
+        <div class="group-label" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>${esc(r.name)}</span>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer;text-transform:none;letter-spacing:normal;font-size:11.5px;color:var(--text);">
+            <input type="checkbox" style="width:16px;height:16px;" ${allSelected?"checked":""} onchange="toggleActRoomSelectAll('${r.id}')"> Обрати всі
+          </label>
+        </div>
+        ${availableWorks.map(w => `
+          <div class="work-row">
+            <input type="checkbox" style="width:20px;height:20px;flex-shrink:0;" ${selected[w.id]?"checked":""} onchange="toggleActWorkSelect('${w.id}')">
+            <div style="flex:1">
+              <div class="w-name">${esc(w.name)}</div>
+              <div class="w-meta"><span class="mono">${w.qty} ${esc(w.unit)}</span>${w.price>0?`<span class="mono">${w.price} €/${esc(w.unit)}</span>`:""}</div>
+            </div>
+            <div class="mono" style="font-weight:800;">${fmtEUR(w.qty*w.price)}</div>
+          </div>
+        `).join("")}`;
+    };
+    const zoneBlocks = zones.map(z => {
+      const zRooms = o.rooms.filter(r => z.roomIds.includes(r.id));
+      const inner = zRooms.map(roomBlockHtml).join("");
+      return inner ? `<div class="group-label" style="color:var(--amber);margin-top:18px;">${esc(z.name)}</div>${inner}` : "";
+    }).join("");
+    const unzonedBlock = unzonedRooms.map(roomBlockHtml).join("");
+    body = `
+    <h3>Сформувати акт</h3>
+    ${hasAnyAvailable ? `${zoneBlocks}${unzonedBlock}` : `<div class="empty-slot">Усі роботи вже включені в попередні акти.</div>`}
+    <div class="room-stats" style="grid-template-columns:1fr;margin-top:14px;">
+      <div class="mini-stat"><div class="mini-stat-label">ОБРАНО НА СУМУ</div><div class="mini-stat-val amber mono">${fmtEUR(selectedSum)}</div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="goToActPreview()" ${Object.keys(selected).length ? "" : "disabled"}>Далі</button>
+    </div>`;
+  }
+  if (t === "actPreview") {
+    const o = getObj();
+    const selected = state.modal.selected || {};
+    const selectedIds = Object.keys(selected).filter(id => selected[id]);
+    const roomGroups = [];
+    if (o) {
+      o.rooms.forEach(r => {
+        const works = r.works.filter(w => selectedIds.includes(w.id));
+        if (works.length) roomGroups.push({ room: r, works });
+      });
+    }
+    const total = roomGroups.reduce((s,g) => s + g.works.reduce((s2,w) => s2 + w.qty*w.price, 0), 0);
+    const nextNumber = o ? (o.acts||[]).length + 1 : 1;
+    body = `
+    <h3>Акт №${nextNumber}</h3>
+    <div class="print-report">
+      ${o ? `<div style="margin-bottom:12px;">
+        <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
+        ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
+        <div style="color:var(--amber);font-size:11.5px;margin-top:2px;font-weight:700;">Попередній перегляд — ще не збережено</div>
+      </div>` : ""}
+      ${roomGroups.map(g => `
+        <div class="group-label">${esc(g.room.name)}</div>
+        ${g.works.map(w => `
+          <div class="work-row">
+            <div style="flex:1">
+              <div class="w-name">${esc(w.name)}</div>
+              <div class="w-meta"><span class="mono">${w.qty} ${esc(w.unit)}</span>${w.price>0?`<span class="mono">${w.price} €/${esc(w.unit)}</span>`:""}</div>
+            </div>
+            <div class="mono" style="font-weight:800;">${fmtEUR(w.qty*w.price)}</div>
+          </div>
+        `).join("")}
+      `).join("")}
+      <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
+        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="ghost-btn" onclick="backToActSelect()">Назад</button>
+      <button class="amber-btn" onclick="saveAct()">Зберегти</button>
+    </div>`;
+  }
+  if (t === "actView") {
+    const o = getObj();
+    const act = o ? (o.acts||[]).find(a => a.id === state.modal.id) : null;
+    const roomGroups = [];
+    if (act && o) {
+      const byRoom = {};
+      act.entries.forEach(e => {
+        byRoom[e.roomId] = byRoom[e.roomId] || { name: (o.rooms.find(r=>r.id===e.roomId)||{}).name || "—", entries: [] };
+        byRoom[e.roomId].entries.push(e);
+      });
+      Object.values(byRoom).forEach(g => roomGroups.push(g));
+    }
+    body = `
+    <h3>Акт №${act?act.number:""}</h3>
+    <div class="print-report">
+      ${o ? `<div style="margin-bottom:12px;">
+        <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
+        ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
+        <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">Сформовано: ${act?esc(fmtDateTime(act.createdAt)):""}</div>
+      </div>` : ""}
+      ${roomGroups.length ? roomGroups.map(g => `
+        <div class="group-label">${esc(g.name)}</div>
+        ${g.entries.map(e => `
+          <div class="work-row">
+            <div style="flex:1">
+              <div class="w-name">${esc(e.name)}</div>
+              <div class="w-meta"><span class="mono">${e.qty} ${esc(e.unit)}</span>${e.price>0?`<span class="mono">${e.price} €/${esc(e.unit)}</span>`:""}</div>
+            </div>
+            <div class="mono" style="font-weight:800;">${fmtEUR(e.qty*e.price)}</div>
+          </div>
+        `).join("")}
+      `).join("") : `<div class="empty-slot">Немає позицій.</div>`}
+      <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
+        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(act?act.totalSum:0)}</div></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+    </div>`;
+  }
   return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
 }
 
@@ -2070,7 +2295,8 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
   submitPriceCategory, submitPriceUnit, deletePriceUnit,
   setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem,
-  openMaterialsReportPreview, saveMaterialsReport, viewMaterialReport });
+  openMaterialsReportPreview, saveMaterialsReport, viewMaterialReport,
+  openActSelect, toggleActWorkSelect, toggleActRoomSelectAll, goToActPreview, backToActSelect, saveAct, viewAct });
 
 render();
 </script>
