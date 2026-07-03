@@ -264,6 +264,12 @@ input, select { font-family: inherit; }
 }
 .switch input:checked + .switch-track { background: rgba(229,83,75,0.25); border-color: var(--red); }
 .switch input:checked + .switch-track::before { transform: translateX(17px); background: var(--red); }
+.modal-toggle-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.modal-toggle-btn {
+  flex: 1; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+  text-align: center; font-weight: 700; font-size: 12.5px; color: var(--text);
+}
+.modal-toggle-btn.selected { background: var(--amber); color: #1A1300; border-color: var(--amber); }
 
 /* ---------- Modal ---------- */
 .modal-backdrop {
@@ -383,16 +389,17 @@ const seedData = {
           { id: "w11", name: "Затирка швів", unit: "м²", qty: 15, price: 8, done: false, priceItemId: null, note: "" },
         ]},
       ],
-      materials: [
-        { id: "mat-1", name: "Клей для плитки", qty: 10, unit: "мішок", price: 12, isDebt: false },
-        { id: "mat-2", name: "Затирка", qty: 4, unit: "кг", price: 8, isDebt: true },
+      materialItems: [
+        { id: "mi-1", type: "material", createdAt: Date.now()-4*86400000, reportId: null,
+          name: "Клей для плитки", qty: 10, unit: "мішок", price: 12, isDebt: false },
+        { id: "mi-2", type: "material", createdAt: Date.now()-3*86400000, reportId: null,
+          name: "Затирка", qty: 4, unit: "кг", price: 8, isDebt: true },
+        { id: "mi-3", type: "receipt", createdAt: Date.now()-3*86400000+3600000, reportId: null,
+          amount: 180, date: "2026-05-10T11:20", note: "Будматеріали, магазин Baumax", photo: null, isDebt: false },
+        { id: "mi-4", type: "payment", createdAt: Date.now()-1*86400000, reportId: null,
+          amount: 120, date: "2026-05-12T09:00", note: "", paymentType: "debt" },
       ],
-      materialReceipts: [
-        { id: "receipt-1", amount: 180, date: "2026-05-10", note: "Будматеріали, магазин Baumax", isDebt: false },
-      ],
-      materialPayments: [
-        { id: "matpay-1", amount: 120, date: "2026-05-12", note: "" },
-      ],
+      materialReports: [],
       advances: [
         { id: "adv-1", amount: 500, date: "2026-05-01", note: "Перший транш" },
       ],
@@ -411,6 +418,7 @@ let state = {
   objSearch: "",
   priceSearch: "",
   openActionMenuId: null,
+  expandedReportIds: {},
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
 };
@@ -422,14 +430,46 @@ function migrateData(data) {
     if (o.archived === undefined) o.archived = false;
     if (o.startDate === undefined) o.startDate = "";
     if (o.note === undefined) o.note = "";
-    if (o.materials === undefined) o.materials = [];
-    if (o.materialReceipts === undefined) o.materialReceipts = [];
-    if (o.materialPayments === undefined) o.materialPayments = [];
-    if (o.materialReports === undefined) o.materialReports = [];
+    if (o.materialItems === undefined) {
+      const items = [];
+      (o.materials || []).forEach(m => items.push({
+        id: m.id, type: "material", createdAt: Date.now(), reportId: null,
+        name: m.name, qty: m.qty, unit: m.unit, price: m.price, isDebt: !!m.isDebt,
+      }));
+      (o.materialReceipts || []).forEach(r => items.push({
+        id: r.id, type: "receipt", createdAt: Date.now(), reportId: null,
+        amount: r.amount, date: r.date||"", note: r.note||"", photo: r.photo||null, isDebt: !!r.isDebt,
+      }));
+      (o.materialPayments || []).forEach(p => items.push({
+        id: p.id, type: "payment", createdAt: Date.now(), reportId: null,
+        amount: p.amount, date: p.date||"", note: p.note||"", paymentType: "debt",
+      }));
+      const oldReports = (o.materialReports || []).slice().sort((a,b) => (a.createdAt||0)-(b.createdAt||0));
+      o.materialReports = oldReports.map((rep, idx) => {
+        const itemIds = [];
+        (rep.materials || []).forEach(m => {
+          items.push({ id: m.id, type: "material", createdAt: rep.createdAt||Date.now(), reportId: rep.id,
+            name: m.name, qty: m.qty, unit: m.unit, price: m.price, isDebt: !!m.isDebt });
+          itemIds.push(m.id);
+        });
+        (rep.receipts || []).forEach(r => {
+          items.push({ id: r.id, type: "receipt", createdAt: rep.createdAt||Date.now(), reportId: rep.id,
+            amount: r.amount, date: r.date||"", note: r.note||"", photo: r.photo||null, isDebt: !!r.isDebt });
+          itemIds.push(r.id);
+        });
+        return { id: rep.id, number: idx+1, createdAt: rep.createdAt||Date.now(), itemIds };
+      });
+      o.materialItems = items;
+      delete o.materials; delete o.materialReceipts; delete o.materialPayments;
+    }
+    o.materialReports = o.materialReports || [];
+    (o.materialItems || []).forEach(it => {
+      if (it.reportId === undefined) it.reportId = null;
+      if ((it.type === "material" || it.type === "receipt") && it.isDebt === undefined) it.isDebt = false;
+      if (it.type === "receipt" && it.photo === undefined) it.photo = null;
+    });
     if (o.advances === undefined) o.advances = [];
     if (o.zones === undefined) o.zones = [];
-    (o.materials || []).forEach(m => { if (m.isDebt === undefined) m.isDebt = false; });
-    (o.materialReceipts || []).forEach(r => { if (r.isDebt === undefined) r.isDebt = false; });
     (o.rooms || []).forEach(r => {
       (r.works || []).forEach(w => {
         if (w.priceItemId === undefined) w.priceItemId = null;
@@ -508,9 +548,12 @@ function objectSum(obj) { return obj.rooms.reduce((s,r) => s + roomSum(r), 0); }
 function objectSumDone(obj) { return obj.rooms.reduce((s,r) => s + roomSumDone(r), 0); }
 function objectSumLeft(obj) { return obj.rooms.reduce((s,r) => s + roomSumLeft(r), 0); }
 function objectDebtTotal(obj) {
-  const matDebt = (obj.materials||[]).filter(m => m.isDebt).reduce((s,m) => s + m.qty*m.price, 0);
-  const receiptDebt = (obj.materialReceipts||[]).filter(r => r.isDebt).reduce((s,r) => s + r.amount, 0);
-  return matDebt + receiptDebt;
+  const items = obj.materialItems || [];
+  const debtItems = items.filter(it => (it.type==="material"||it.type==="receipt") && it.isDebt)
+    .reduce((s,it) => s + (it.type==="material" ? it.qty*it.price : it.amount), 0);
+  const debtPaid = items.filter(it => it.type==="payment" && it.paymentType==="debt")
+    .reduce((s,p) => s + p.amount, 0);
+  return Math.max(0, debtItems - debtPaid);
 }
 
 /* ---------- Actions ---------- */
@@ -673,79 +716,88 @@ function pickWorkPriceItem(id) {
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   render();
 }
-/* ---------- Materials ---------- */
-function createMaterial(name, qty, unit, price, isDebt) {
+/* ---------- Materials (unified feed) ---------- */
+function createMaterialItem(fields) {
   const o = getObj(); if (!o) return;
-  o.materials = o.materials || [];
-  o.materials.push({ id: uid("mat"), name, qty: Number(qty)||0, unit, price: Number(price)||0, isDebt: !!isDebt });
+  o.materialItems = o.materialItems || [];
+  o.materialItems.push({ id: uid("mi"), createdAt: Date.now(), reportId: null, ...fields });
   o.updatedAt = Date.now();
   saveData(); closeModal();
 }
-function deleteMaterial(id) {
+function updateMaterialItem(id, fields) {
   const o = getObj(); if (!o) return;
-  o.materials = (o.materials||[]).filter(m => m.id !== id);
+  const it = (o.materialItems||[]).find(it => it.id === id); if (!it) return;
+  Object.assign(it, fields);
+  o.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function deleteMaterialItem(id) {
+  const o = getObj(); if (!o) return;
+  o.materialItems = (o.materialItems||[]).filter(it => it.id !== id);
   o.updatedAt = Date.now();
   saveData(); render();
 }
-function updateMaterial(id, fields) {
-  const o = getObj(); if (!o) return;
-  const m = (o.materials||[]).find(m => m.id === id); if (!m) return;
-  Object.assign(m, fields);
-  o.updatedAt = Date.now();
-  saveData(); closeModal();
+function setMaterialItemType(type) {
+  if (!state.modal) return;
+  state.modal.itemType = type;
+  state.modal.photoData = undefined;
+  render();
 }
-function createMaterialReceipt(amount, date, note, isDebt) {
-  const o = getObj(); if (!o) return;
-  o.materialReceipts = o.materialReceipts || [];
-  o.materialReceipts.push({ id: uid("receipt"), amount: Number(amount)||0, date: date||"", note: note||"", isDebt: !!isDebt });
-  o.updatedAt = Date.now();
-  saveData(); closeModal();
+function setMaterialPaymentType(type) {
+  if (!state.modal) return;
+  state.modal.paymentType = type;
+  render();
 }
-function deleteMaterialReceipt(id) {
-  const o = getObj(); if (!o) return;
-  o.materialReceipts = (o.materialReceipts||[]).filter(r => r.id !== id);
-  o.updatedAt = Date.now();
-  saveData(); render();
+function handleReceiptPhotoChange(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 800;
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      if (!state.modal) return;
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+      state.modal.photoData = dataUrl;
+      const preview = document.getElementById("m-photo-preview");
+      if (preview) {
+        preview.style.marginTop = "8px";
+        preview.innerHTML = `<img src="${dataUrl}" style="max-width:100%;max-height:140px;border-radius:8px;border:1px solid var(--line);">`;
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
-function updateMaterialReceipt(id, fields) {
-  const o = getObj(); if (!o) return;
-  const r = (o.materialReceipts||[]).find(r => r.id === id); if (!r) return;
-  Object.assign(r, fields);
-  o.updatedAt = Date.now();
-  saveData(); closeModal();
+function toggleFeedReport(id) {
+  state.expandedReportIds = state.expandedReportIds || {};
+  state.expandedReportIds[id] = !state.expandedReportIds[id];
+  render();
 }
 function generateMaterialsReport() {
   const o = getObj(); if (!o) return;
-  if (!confirm("Після формування звіту поточні матеріали й чеки буде заархівовано і більше не можна буде редагувати. Продовжити?")) return;
+  const openItems = (o.materialItems||[]).filter(it => it.reportId === null && (it.type === "material" || it.type === "receipt"));
+  if (!openItems.length) return;
+  if (!confirm("Буде сформовано звіт по поточних матеріалах і чеках. Ці позиції стануть недоступні для редагування. Продовжити?")) return;
   o.materialReports = o.materialReports || [];
-  o.materialReports.push({
-    id: uid("matreport"),
-    createdAt: Date.now(),
-    materials: JSON.parse(JSON.stringify(o.materials||[])),
-    receipts: JSON.parse(JSON.stringify(o.materialReceipts||[])),
-  });
-  o.materials = [];
-  o.materialReceipts = [];
-  o.materialPayments = [];
+  const number = o.materialReports.length + 1;
+  const reportId = uid("matreport");
+  o.materialReports.push({ id: reportId, number, createdAt: Date.now(), itemIds: openItems.map(it => it.id) });
+  openItems.forEach(it => { it.reportId = reportId; });
   o.updatedAt = Date.now();
-  saveData(); render();
+  saveData();
+  state.modal = { type: "materialReportView", id: reportId };
+  render();
 }
 function viewMaterialReport(id) {
   state.modal = { type: "materialReportView", id };
   render();
-}
-function createMaterialPayment(amount, date) {
-  const o = getObj(); if (!o) return;
-  o.materialPayments = o.materialPayments || [];
-  o.materialPayments.push({ id: uid("matpay"), amount: Number(amount)||0, date: date||"", note: "" });
-  o.updatedAt = Date.now();
-  saveData(); closeModal();
-}
-function deleteMaterialPayment(id) {
-  const o = getObj(); if (!o) return;
-  o.materialPayments = (o.materialPayments||[]).filter(p => p.id !== id);
-  o.updatedAt = Date.now();
-  saveData(); render();
 }
 
 /* ---------- Advances (аванси від замовника) ---------- */
@@ -1121,72 +1173,113 @@ function renderWorkspaceTab(obj) {
 }
 
 function renderMaterialsHeaderStats(obj) {
-  const materialsTotal = (obj.materials||[]).reduce((s,m) => s + m.qty*m.price, 0);
-  const advancesTotal = (obj.advances||[]).reduce((s,a) => s + a.amount, 0);
-  const customerDebt = Math.max(0, materialsTotal - advancesTotal);
+  const items = obj.materialItems || [];
+  const materialsTotal = items.filter(it => it.type==="material").reduce((s,m) => s + m.qty*m.price, 0);
+  const paidByCustomer = items.filter(it => it.type==="payment" && it.paymentType==="customer").reduce((s,p) => s + p.amount, 0);
+  const customerDebt = Math.max(0, materialsTotal - paidByCustomer);
   const supplierDebt = objectDebtTotal(obj);
   return `
   <div class="obj-header-stats-row">
     <div class="obj-header-stat"><div class="obj-header-stat-label">СУМА МАТЕРІАЛІВ</div><div class="obj-header-stat-val mono">${fmtEUR(materialsTotal)}</div></div>
-    <div class="obj-header-stat"><div class="obj-header-stat-label">ОПЛАЧЕНО ЗАМОВНИКОМ</div><div class="obj-header-stat-val green mono">${fmtEUR(advancesTotal)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">ОПЛАЧЕНО ЗАМОВНИКОМ</div><div class="obj-header-stat-val green mono">${fmtEUR(paidByCustomer)}</div></div>
     <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ЗАМОВНИКА</div><div class="obj-header-stat-val amber mono">${fmtEUR(customerDebt)}</div></div>
     <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ПЕРЕД ПОСТАЧАЛЬНИКОМ</div><div class="obj-header-stat-val red mono">${fmtEUR(supplierDebt)}</div></div>
   </div>`;
 }
 
 function renderMaterialsTab(obj) {
-  const materials = obj.materials || [];
-  const receipts = obj.materialReceipts || [];
-  const payments = obj.materialPayments || [];
+  const items = obj.materialItems || [];
+  const openItems = items.filter(it => it.reportId === null);
+  const reports = (obj.materialReports || []).filter(rep => rep.itemIds && rep.itemIds.length);
+  const feedEntries = [
+    ...openItems.map(it => ({ sortKey: it.createdAt, kind: "item", item: it })),
+    ...reports.map(rep => ({ sortKey: rep.createdAt, kind: "report", report: rep })),
+  ].sort((a,b) => b.sortKey - a.sortKey);
+
   return `
     <div class="section-head">
       <div><div class="eyebrow">Матеріал</div><div class="section-title">Матеріали об'єкта</div></div>
     </div>
 
-    <div class="group-label">Матеріали</div>
-    ${materials.map(materialRowHtml).join("") || `<div class="empty-slot">Ще немає жодного матеріалу.</div>`}
-
-    ${receipts.length ? `<div class="group-label">Чеки на закупівлю</div>${receipts.map(receiptRowHtml).join("")}` : ""}
-    ${payments.length ? `<div class="group-label">Оплати постачальнику</div>${payments.map(paymentRowHtml).join("")}` : ""}
+    ${feedEntries.length ? feedEntries.map(e => e.kind === "item" ? feedItemRowHtml(e.item) : reportCardHtml(obj, e.report)).join("") : `<div class="empty-slot">Ще немає жодного запису.</div>`}
 
     <div class="btn-row">
       <button class="ghost-btn" onclick="openModal('material')">+ Додати матеріал</button>
-      <button class="ghost-btn" onclick="openModal('materialReceipt')">+ Додати чек</button>
       <button class="ghost-btn" onclick="openModal('materialPayment')">+ Додати оплату</button>
-      <button class="ghost-btn" onclick="openModal('materialsReport')">📄 Звіт для замовника</button>
-      <button class="ghost-btn" onclick="generateMaterialsReport()">Сформувати звіт</button>
+      <button class="ghost-btn" onclick="generateMaterialsReport()">📄 Звіт для замовника</button>
       <button class="ghost-btn" onclick="openModal('materialReportsHistory')">Історія звітів</button>
+      <button class="ghost-btn" onclick="openModal('materialPaymentsHistory')">Історія оплат</button>
     </div>
   `;
 }
 
-function materialRowHtml(m) {
+function feedItemRowHtml(item) {
+  if (item.type === "material") {
+    return `<div class="work-row">
+      <div style="flex:1">
+        <div class="w-name">${esc(item.name)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} €/${esc(item.unit)}</span></div>
+      </div>
+      <button class="w-del" title="Редагувати" onclick="openModal('material','${item.id}')">✎</button>
+      <button class="w-del" title="Видалити" onclick="deleteMaterialItem('${item.id}')">✕</button>
+    </div>`;
+  }
+  if (item.type === "receipt") {
+    return `<div class="work-row">
+      <div style="flex:1">
+        <div class="w-name">${fmtEUR(item.amount)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+        <div class="w-meta"><span class="mono">${esc(item.date||"—")}</span>${item.note?`<span>${esc(item.note)}</span>`:""}</div>
+        ${item.photo ? `<div style="margin-top:6px;"><img src="${item.photo}" style="max-width:64px;max-height:64px;border-radius:6px;border:1px solid var(--line);object-fit:cover;"></div>` : ""}
+      </div>
+      <button class="w-del" title="Редагувати" onclick="openModal('material','${item.id}')">✎</button>
+      <button class="w-del" title="Видалити" onclick="deleteMaterialItem('${item.id}')">✕</button>
+    </div>`;
+  }
+  const badge = item.paymentType === "customer" ? "Від замовника" : "Борг постачальнику";
   return `<div class="work-row">
     <div style="flex:1">
-      <div class="w-name">${esc(m.name)}</div>
-      <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
+      <div class="w-name">${fmtEUR(item.amount)} <span style="font-size:10.5px;font-weight:700;color:var(--muted);">· ${esc(badge)}</span></div>
+      <div class="w-meta"><span class="mono">${esc(item.date||"—")}</span>${item.note?`<span>${esc(item.note)}</span>`:""}</div>
     </div>
-    <button class="w-del" title="Редагувати" onclick="openModal('material','${m.id}')">✎</button>
-    <button class="w-del" title="Видалити" onclick="deleteMaterial('${m.id}')">✕</button>
+    <button class="w-del" title="Редагувати" onclick="openModal('materialPayment','${item.id}')">✎</button>
+    <button class="w-del" title="Видалити" onclick="deleteMaterialItem('${item.id}')">✕</button>
   </div>`;
 }
-function receiptRowHtml(r) {
-  return `<div class="work-row">
+
+function feedItemSummaryHtml(item) {
+  if (item.type === "material") {
+    return `<div class="work-row" style="margin-bottom:0;">
+      <div style="flex:1">
+        <div class="w-name">${esc(item.name)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} €/${esc(item.unit)}</span></div>
+      </div>
+      <div class="mono" style="font-weight:800;">${fmtEUR(item.qty*item.price)}</div>
+    </div>`;
+  }
+  return `<div class="work-row" style="margin-bottom:0;">
     <div style="flex:1">
-      <div class="w-name">${fmtEUR(r.amount)}</div>
-      <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
+      <div class="w-name">${fmtEUR(item.amount)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+      <div class="w-meta"><span class="mono">${esc(item.date||"—")}</span>${item.note?`<span>${esc(item.note)}</span>`:""}</div>
+      ${item.photo ? `<div style="margin-top:6px;"><img src="${item.photo}" style="max-width:64px;max-height:64px;border-radius:6px;border:1px solid var(--line);object-fit:cover;"></div>` : ""}
     </div>
-    <button class="w-del" title="Редагувати" onclick="openModal('materialReceipt','${r.id}')">✎</button>
-    <button class="w-del" title="Видалити" onclick="deleteMaterialReceipt('${r.id}')">✕</button>
   </div>`;
 }
-function paymentRowHtml(p) {
-  return `<div class="work-row">
-    <div style="flex:1">
-      <div class="w-name">${fmtEUR(p.amount)}</div>
-      <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span></div>
+
+function reportCardHtml(obj, report) {
+  const expanded = !!(state.expandedReportIds && state.expandedReportIds[report.id]);
+  const items = (obj.materialItems || []).filter(it => it.reportId === report.id);
+  const total = items.reduce((s,it) => s + (it.type==="material" ? it.qty*it.price : it.amount), 0);
+  return `<div class="work-row" style="flex-direction:column;align-items:stretch;cursor:pointer;" onclick="toggleFeedReport('${report.id}')">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="flex:1">
+        <div class="w-name">📄 Звіт №${report.number}</div>
+        <div class="w-meta"><span class="mono">${esc(fmtDateTime(report.createdAt))}</span><span class="mono">${items.length} поз.</span></div>
+      </div>
+      <div class="mono" style="font-weight:800;">${fmtEUR(total)}</div>
     </div>
-    <button class="w-del" title="Видалити" onclick="deleteMaterialPayment('${p.id}')">✕</button>
+    ${expanded ? `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+      ${items.map(feedItemSummaryHtml).join("")}
+    </div>` : ""}
   </div>`;
 }
 
@@ -1647,49 +1740,58 @@ function renderModal() {
   }
   if (t === "material") {
     const o0 = getObj();
-    const editing = state.modal.id && o0 ? (o0.materials||[]).find(m => m.id === state.modal.id) : null;
+    const editing = state.modal.id && o0 ? (o0.materialItems||[]).find(it => it.id === state.modal.id) : null;
+    const mode = editing ? editing.type : (state.modal.itemType || "material");
+    const photo = state.modal.photoData !== undefined ? state.modal.photoData : (editing ? editing.photo : null);
     body = `
-    <h3>${editing ? "Редагувати матеріал" : "Новий матеріал"}</h3>
+    <h3>${editing ? (mode==="material" ? "Редагувати матеріал" : "Редагувати чек") : "Додати матеріал"}</h3>
+    ${!editing ? `
+    <div class="modal-toggle-row">
+      <button class="modal-toggle-btn ${mode==="material"?"selected":""}" onclick="setMaterialItemType('material')">Матеріал</button>
+      <button class="modal-toggle-btn ${mode==="receipt"?"selected":""}" onclick="setMaterialItemType('receipt')">Чек</button>
+    </div>` : ""}
+    ${mode === "material" ? `
     <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Клей для плитки" value="${editing?esc(editing.name):""}"></div>
     <div style="display:flex;gap:10px;">
       <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing?editing.qty:""}"></div>
       <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing?esc(editing.unit):"шт"}"></div>
     </div>
     <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing?editing.price:""}"></div>
-    <label class="switch-row">
-      <span class="switch-row-label">Борг перед магазином</span>
-      <span class="switch"><input id="m-isdebt" type="checkbox" ${editing&&editing.isDebt?"checked":""}><span class="switch-track"></span></span>
-    </label>
-    <div class="modal-actions">
-      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitMaterial('${editing?editing.id:""}')">${editing?"Зберегти":"Додати"}</button>
-    </div>`;
-  }
-  if (t === "materialReceipt") {
-    const o1 = getObj();
-    const editing = state.modal.id && o1 ? (o1.materialReceipts||[]).find(r => r.id === state.modal.id) : null;
-    body = `
-    <h3>${editing ? "Редагувати чек" : "Новий чек на закупівлю"}</h3>
+    ` : `
     <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
     <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):""}"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Напр. Будматеріали, магазин" value="${editing?esc(editing.note||""):""}"></div>
+    <div class="field"><label>Фото чека</label><input id="m-photo" type="file" accept="image/*" onchange="handleReceiptPhotoChange(this)">
+      <div id="m-photo-preview" style="margin-top:${photo?"8px":"0"};">${photo ? `<img src="${photo}" style="max-width:100%;max-height:140px;border-radius:8px;border:1px solid var(--line);">` : ""}</div>
+    </div>
+    `}
     <label class="switch-row">
-      <span class="switch-row-label">Борг перед магазином</span>
+      <span class="switch-row-label">Борг перед постачальником</span>
       <span class="switch"><input id="m-isdebt" type="checkbox" ${editing&&editing.isDebt?"checked":""}><span class="switch-track"></span></span>
     </label>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitMaterialReceipt('${editing?editing.id:""}')">${editing?"Зберегти":"Додати"}</button>
+      <button class="amber-btn" onclick="submitMaterialItem('${editing?editing.id:""}')">${editing?"Зберегти":"Додати"}</button>
     </div>`;
   }
-  if (t === "materialPayment") body = `
-    <h3>Нова оплата постачальнику</h3>
-    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
-    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local"></div>
+  if (t === "materialPayment") {
+    const o1 = getObj();
+    const editing = state.modal.id && o1 ? (o1.materialItems||[]).find(it => it.id === state.modal.id) : null;
+    const pType = state.modal.paymentType || (editing ? editing.paymentType : "customer");
+    body = `
+    <h3>${editing ? "Редагувати оплату" : "Нова оплата"}</h3>
+    <div class="modal-toggle-row">
+      <button class="modal-toggle-btn ${pType==="customer"?"selected":""}" onclick="setMaterialPaymentType('customer')">Оплата від замовника</button>
+      <button class="modal-toggle-btn ${pType==="debt"?"selected":""}" onclick="setMaterialPaymentType('debt')">Оплата боргу постачальнику</button>
+    </div>
+    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):""}"></div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково" value="${editing?esc(editing.note||""):""}"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitMaterialPayment()">Додати</button>
+      <button class="amber-btn" onclick="submitMaterialPayment('${editing?editing.id:""}')">${editing?"Зберегти":"Додати"}</button>
     </div>`;
+  }
   if (t === "advance") body = `
     <h3>Новий аванс від замовника</h3>
     <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
@@ -1699,46 +1801,18 @@ function renderModal() {
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitAdvance()">Додати</button>
     </div>`;
-  if (t === "materialsReport") {
-    const o = getObj();
-    const materials = o ? (o.materials||[]).filter(m => !m.isDebt) : [];
-    const total = materials.reduce((s,m) => s + m.qty*m.price, 0);
-    body = `
-    <h3>Звіт для замовника</h3>
-    <div class="print-report">
-      ${o ? `<div style="margin-bottom:12px;">
-        <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
-        ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
-      </div>` : ""}
-      ${materials.length ? materials.map(m => `
-        <div class="work-row">
-          <div style="flex:1">
-            <div class="w-name">${esc(m.name)}</div>
-            <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
-          </div>
-          <div class="mono" style="font-weight:800;">${fmtEUR(m.qty*m.price)}</div>
-        </div>
-      `).join("") : `<div class="empty-slot">Матеріалів немає.</div>`}
-      <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
-        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
-      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
-    </div>`;
-  }
   if (t === "materialReportsHistory") {
     const o = getObj();
-    const reports = o ? (o.materialReports||[]).slice().sort((a,b) => b.createdAt-a.createdAt) : [];
+    const reports = o ? (o.materialReports||[]).slice().sort((a,b) => b.number-a.number) : [];
     body = `
     <h3>Історія звітів</h3>
     ${reports.length ? reports.map(rep => {
-      const total = (rep.materials||[]).reduce((s,m) => s + m.qty*m.price, 0);
+      const items = (o.materialItems||[]).filter(it => (rep.itemIds||[]).includes(it.id));
+      const total = items.reduce((s,it) => s + (it.type==="material" ? it.qty*it.price : it.amount), 0);
       return `<div class="work-row" style="cursor:pointer;" onclick="viewMaterialReport('${rep.id}')">
         <div style="flex:1">
-          <div class="w-name">${esc(fmtDateTime(rep.createdAt))}</div>
-          <div class="w-meta"><span class="mono">${(rep.materials||[]).length} матеріалів</span><span class="mono">${(rep.receipts||[]).length} чеків</span></div>
+          <div class="w-name">Звіт №${rep.number}</div>
+          <div class="w-meta"><span class="mono">${esc(fmtDateTime(rep.createdAt))}</span></div>
         </div>
         <div class="mono" style="font-weight:800;">${fmtEUR(total)}</div>
       </div>`;
@@ -1750,35 +1824,65 @@ function renderModal() {
   if (t === "materialReportView") {
     const o = getObj();
     const rep = o ? (o.materialReports||[]).find(r => r.id === state.modal.id) : null;
-    const materials = rep ? (rep.materials||[]) : [];
-    const receipts = rep ? (rep.receipts||[]) : [];
-    const total = materials.reduce((s,m) => s + m.qty*m.price, 0);
+    const allItems = rep ? (o.materialItems||[]).filter(it => (rep.itemIds||[]).includes(it.id) && !it.isDebt) : [];
+    const materials = allItems.filter(it => it.type === "material");
+    const receipts = allItems.filter(it => it.type === "receipt");
+    const total = materials.reduce((s,m) => s + m.qty*m.price, 0) + receipts.reduce((s,r) => s + r.amount, 0);
     body = `
-    <h3>Звіт від ${rep ? esc(fmtDateTime(rep.createdAt)) : ""}</h3>
-    <div class="group-label">Матеріали</div>
-    ${materials.length ? materials.map(m => `
-      <div class="work-row">
-        <div style="flex:1">
-          <div class="w-name">${esc(m.name)}${m.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
-          <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
+    <h3>Акт по матеріалах №${rep?rep.number:""}</h3>
+    <div class="print-report">
+      ${o ? `<div style="margin-bottom:12px;">
+        <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
+        ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
+        <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">Сформовано: ${rep?esc(fmtDateTime(rep.createdAt)):""}</div>
+      </div>` : ""}
+      <div class="group-label">Матеріали</div>
+      ${materials.length ? materials.map(m => `
+        <div class="work-row">
+          <div style="flex:1">
+            <div class="w-name">${esc(m.name)}</div>
+            <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
+          </div>
+          <div class="mono" style="font-weight:800;">${fmtEUR(m.qty*m.price)}</div>
         </div>
-        <div class="mono" style="font-weight:800;">${fmtEUR(m.qty*m.price)}</div>
-      </div>
-    `).join("") : `<div class="empty-slot">Матеріалів немає.</div>`}
-    ${receipts.length ? `<div class="group-label">Чеки на закупівлю</div>${receipts.map(r => `
-      <div class="work-row">
-        <div style="flex:1">
-          <div class="w-name">${fmtEUR(r.amount)}${r.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
-          <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
+      `).join("") : `<div class="empty-slot">Матеріалів немає.</div>`}
+      <div class="group-label">Чеки</div>
+      ${receipts.length ? receipts.map(r => `
+        <div class="work-row" style="flex-direction:column;align-items:stretch;">
+          <div style="display:flex;gap:12px;align-items:center;">
+            <div style="flex:1">
+              <div class="w-name">${fmtEUR(r.amount)}</div>
+              <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
+            </div>
+          </div>
+          ${r.photo ? `<img src="${r.photo}" style="margin-top:8px;max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--line);">` : ""}
         </div>
+      `).join("") : `<div class="empty-slot">Чеків немає.</div>`}
+      <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
+        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
       </div>
-    `).join("")}` : ""}
-    <div class="room-stats" style="grid-template-columns:1fr;margin-top:8px;">
-      <div class="mini-stat"><div class="mini-stat-label">РАЗОМ МАТЕРІАЛИ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="openModal('materialReportsHistory')">← Історія</button>
-      <button class="amber-btn" onclick="closeModal()">Закрити</button>
+      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+    </div>`;
+  }
+  if (t === "materialPaymentsHistory") {
+    const o = getObj();
+    const payments = o ? (o.materialItems||[]).filter(it => it.type==="payment").slice().sort((a,b) => b.createdAt-a.createdAt) : [];
+    body = `
+    <h3>Історія оплат</h3>
+    ${payments.length ? payments.map(p => {
+      const badge = p.paymentType === "customer" ? "Від замовника" : "Борг постачальнику";
+      return `<div class="work-row">
+        <div style="flex:1">
+          <div class="w-name">${fmtEUR(p.amount)} <span style="font-size:10.5px;font-weight:700;color:var(--muted);">· ${esc(badge)}</span></div>
+          <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
+        </div>
+      </div>`;
+    }).join("") : `<div class="empty-slot">Ще немає жодної оплати.</div>`}
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
     </div>`;
   }
   return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
@@ -1865,27 +1969,29 @@ function submitClient(id) {
   }
   createClient(n, phone, addr, note);
 }
-function submitMaterial(id) {
-  const n = val("m-name"); if (!n) return;
+function submitMaterialItem(id) {
+  const o = getObj(); if (!o) return;
+  const editing = id ? (o.materialItems||[]).find(it => it.id === id) : null;
+  const mode = editing ? editing.type : (state.modal.itemType || "material");
   const isDebt = !!document.getElementById("m-isdebt")?.checked;
-  if (id) {
-    updateMaterial(id, { name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, isDebt });
+  if (mode === "material") {
+    const n = val("m-name"); if (!n) return;
+    const fields = { type: "material", name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, isDebt };
+    if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   } else {
-    createMaterial(n, val("m-qty"), val("m-unit")||"шт", val("m-price"), isDebt);
+    const amount = Number(val("m-amount")); if (!amount) return;
+    const photo = state.modal.photoData !== undefined ? state.modal.photoData : (editing ? editing.photo : null);
+    const fields = { type: "receipt", amount, date: val("m-date"), note: val("m-note"), isDebt, photo: photo||null };
+    if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   }
 }
-function submitMaterialReceipt(id) {
+function submitMaterialPayment(id) {
   const amount = Number(val("m-amount")); if (!amount) return;
-  const isDebt = !!document.getElementById("m-isdebt")?.checked;
-  if (id) {
-    updateMaterialReceipt(id, { amount, date: val("m-date"), note: val("m-note"), isDebt });
-  } else {
-    createMaterialReceipt(amount, val("m-date"), val("m-note"), isDebt);
-  }
-}
-function submitMaterialPayment() {
-  const amount = Number(val("m-amount")); if (!amount) return;
-  createMaterialPayment(amount, val("m-date"));
+  const o = getObj();
+  const editing = id && o ? (o.materialItems||[]).find(it => it.id === id) : null;
+  const paymentType = state.modal.paymentType || (editing ? editing.paymentType : "customer");
+  const fields = { type: "payment", amount, date: val("m-date"), note: val("m-note"), paymentType };
+  if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
 }
 function submitAdvance() {
   const amount = Number(val("m-amount")); if (!amount) return;
@@ -1898,8 +2004,9 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
-  deleteMaterial, deleteMaterialReceipt, deleteMaterialPayment, deleteAdvance,
-  submitMaterial, submitMaterialReceipt, submitMaterialPayment, submitAdvance,
+  deleteMaterialItem, deleteAdvance,
+  submitMaterialItem, submitMaterialPayment, submitAdvance,
+  setMaterialItemType, setMaterialPaymentType, handleReceiptPhotoChange, toggleFeedReport,
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
   submitPriceCategory, submitPriceUnit, deletePriceUnit,
   setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem,
