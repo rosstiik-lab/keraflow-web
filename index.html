@@ -177,12 +177,17 @@ input, select { font-family: inherit; }
 .obj-header-compact-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; }
 .obj-header-compact-ring { position: relative; width: 48px; height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .obj-header-compact-ring .pct { position: absolute; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 800; color: var(--amber); }
-.obj-header-debt-badge {
-  margin-left: auto; flex-shrink: 0; background: rgba(229,83,75,0.14); color: var(--red);
-  border: 1px solid rgba(229,83,75,0.4); border-radius: 999px; padding: 7px 12px;
-  font-weight: 800; font-size: 12px; white-space: nowrap;
-}
 .obj-header-compact-title { font-size: 16px; font-weight: 800; }
+.obj-header-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0 2px 10px; }
+@media (max-width: 640px) {
+  .obj-header-stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+.obj-header-stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.obj-header-stat-label { font-size: 9px; color: var(--muted); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.obj-header-stat-val { font-size: 14px; font-weight: 800; margin-top: 2px; }
+.obj-header-stat-val.green { color: var(--green); }
+.obj-header-stat-val.amber { color: var(--amber); }
+.obj-header-stat-val.red { color: var(--red); }
 .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .btn-row .ghost-btn { flex: 1; min-width: 140px; text-align: center; }
 .banner-card {
@@ -979,15 +984,14 @@ function renderObjectDetail(obj) {
   if (room) return renderRoomDetail(obj, room);
 
   const p = objectProgress(obj);
-  const debt = objectDebtTotal(obj);
   return `
     <button class="back-link" onclick="selectObject(null)">← До списку об'єктів</button>
     <div class="obj-header" id="obj-header">
       <div class="obj-header-compact-row">
         <div class="obj-header-compact-ring">${ringSvg(p, 48, 5)}<span class="pct">${p}%</span></div>
         <div class="obj-header-compact-title">${esc(obj.name)}</div>
-        ${debt > 0 ? `<button class="obj-header-debt-badge" onclick="setQuick('Матеріал')">Борг: ${fmtEUR(debt)}</button>` : ""}
       </div>
+      ${state.quick === "Матеріал" ? renderMaterialsHeaderStats(obj) : ""}
     </div>
 
     <div class="section-card">
@@ -1116,21 +1120,27 @@ function renderWorkspaceTab(obj) {
   `;
 }
 
+function renderMaterialsHeaderStats(obj) {
+  const materialsTotal = (obj.materials||[]).reduce((s,m) => s + m.qty*m.price, 0);
+  const advancesTotal = (obj.advances||[]).reduce((s,a) => s + a.amount, 0);
+  const customerDebt = Math.max(0, materialsTotal - advancesTotal);
+  const supplierDebt = objectDebtTotal(obj);
+  return `
+  <div class="obj-header-stats-row">
+    <div class="obj-header-stat"><div class="obj-header-stat-label">СУМА МАТЕРІАЛІВ</div><div class="obj-header-stat-val mono">${fmtEUR(materialsTotal)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">ОПЛАЧЕНО ЗАМОВНИКОМ</div><div class="obj-header-stat-val green mono">${fmtEUR(advancesTotal)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ЗАМОВНИКА</div><div class="obj-header-stat-val amber mono">${fmtEUR(customerDebt)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ПЕРЕД ПОСТАЧАЛЬНИКОМ</div><div class="obj-header-stat-val red mono">${fmtEUR(supplierDebt)}</div></div>
+  </div>`;
+}
+
 function renderMaterialsTab(obj) {
   const materials = obj.materials || [];
   const receipts = obj.materialReceipts || [];
   const payments = obj.materialPayments || [];
-  const materialsTotal = materials.reduce((s,m) => s + m.qty*m.price, 0);
-  const paidTotal = payments.reduce((s,p) => s + p.amount, 0);
-  const left = Math.max(0, materialsTotal - paidTotal);
   return `
     <div class="section-head">
       <div><div class="eyebrow">Матеріал</div><div class="section-title">Матеріали об'єкта</div></div>
-    </div>
-    <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
-      <div class="mini-stat"><div class="mini-stat-label">СУМА МАТЕРІАЛІВ</div><div class="mini-stat-val mono">${fmtEUR(materialsTotal)}</div></div>
-      <div class="mini-stat"><div class="mini-stat-label">ОПЛАЧЕНО ПОСТАЧАЛЬНИКУ</div><div class="mini-stat-val green mono">${fmtEUR(paidTotal)}</div></div>
-      <div class="mini-stat"><div class="mini-stat-label">ЗАЛИШИЛОСЬ</div><div class="mini-stat-val amber mono">${fmtEUR(left)}</div></div>
     </div>
 
     <div class="group-label">Матеріали</div>
