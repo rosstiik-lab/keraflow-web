@@ -1334,17 +1334,20 @@ function renderCalc(obj) {
   const done = objectSumDone(obj);
   const left = objectSumLeft(obj);
   const advancesTotal = (obj.advances||[]).reduce((s,a) => s + a.amount, 0);
-  const balance = Math.max(total - advancesTotal, 0);
+  const balanceRaw = total - advancesTotal;
+  const balanceLabel = balanceRaw < 0 ? "ПЕРЕПЛАТА" : "БАЛАНС ДО ОПЛАТИ";
+  const balanceColorClass = balanceRaw > 0 ? "amber" : balanceRaw < 0 ? "green" : "";
+  const balanceValue = Math.abs(balanceRaw);
   return `
     <div class="section-card">
       <div class="section-head">
         <div><div class="eyebrow">Кошторис</div><div class="section-title">Розрахунок</div></div>
       </div>
-      <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr));">
+      <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 14px;">
         <div class="mini-stat"><div class="mini-stat-label">ВИКОНАНО</div><div class="mini-stat-val green mono">${fmtEUR(done)}</div></div>
         <div class="mini-stat"><div class="mini-stat-label">ЗАЛИШИЛОСЬ</div><div class="mini-stat-val amber mono">${fmtEUR(left)}</div></div>
         <div class="mini-stat"><div class="mini-stat-label">РАЗОМ ПО ОБ'ЄКТУ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
-        <div class="mini-stat"><div class="mini-stat-label">БАЛАНС ДО ОПЛАТИ</div><div class="mini-stat-val amber mono">${fmtEUR(balance)}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">${balanceLabel}</div><div class="mini-stat-val ${balanceColorClass} mono">${fmtEUR(balanceValue)}</div></div>
       </div>
       ${obj.rooms.length ? obj.rooms.map(r => `
         <div class="work-row" style="cursor:pointer;" onclick="selectRoom('${r.id}')">
