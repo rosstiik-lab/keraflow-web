@@ -331,13 +331,28 @@ input, select { font-family: inherit; }
 
 /* ---------- Print (замовницький звіт / акт) ---------- */
 @media print {
+  @page { size: A4; margin: 12mm; }
   body * { visibility: hidden; }
   .print-report, .print-report * { visibility: visible; }
   .print-report { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; }
   body:has(.act-doc) { background: #fff; }
   .act-doc, .act-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .act-doc { border: none; }
-  .act-table th, .act-table td { border: 1px solid #999; }
+  .act-table-wrap { overflow: visible; }
+  .act-table {
+    table-layout: fixed; width: 100%; min-width: 0; font-size: 11px;
+  }
+  .act-table th, .act-table td {
+    border: 1px solid #999; padding: 4px 6px;
+  }
+  .act-table th:nth-child(1), .act-table td:nth-child(1) { width: 5%; }
+  .act-table th:nth-child(2), .act-table td:nth-child(2) {
+    width: 42%; word-wrap: break-word; overflow-wrap: break-word;
+  }
+  .act-table th:nth-child(3), .act-table td:nth-child(3) { width: 10%; }
+  .act-table th:nth-child(4), .act-table td:nth-child(4) { width: 10%; }
+  .act-table th:nth-child(5), .act-table td:nth-child(5) { width: 15%; }
+  .act-table th:nth-child(6), .act-table td:nth-child(6) { width: 18%; }
 }
 </style>
 </head>
