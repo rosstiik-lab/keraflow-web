@@ -786,11 +786,21 @@ function toggleFeedReport(id) {
   state.expandedReportIds[id] = !state.expandedReportIds[id];
   render();
 }
-function generateMaterialsReport() {
+function openMaterialsReportPreview() {
   const o = getObj(); if (!o) return;
   const openItems = (o.materialItems||[]).filter(it => it.reportId === null && (it.type === "material" || it.type === "receipt"));
-  if (!openItems.length) return;
-  if (!confirm("Буде сформовано звіт по поточних матеріалах і чеках. Ці позиції стануть недоступні для редагування. Продовжити?")) return;
+  if (!openItems.length) {
+    state.modal = { type: "materialReportEmpty" };
+    render();
+    return;
+  }
+  state.modal = { type: "materialReportView", preview: true };
+  render();
+}
+function saveMaterialsReport() {
+  const o = getObj(); if (!o) return;
+  const openItems = (o.materialItems||[]).filter(it => it.reportId === null && (it.type === "material" || it.type === "receipt"));
+  if (!openItems.length) { closeModal(); return; }
   o.materialReports = o.materialReports || [];
   const number = o.materialReports.length + 1;
   const reportId = uid("matreport");
@@ -1212,7 +1222,7 @@ function renderMaterialsTab(obj) {
     <div class="btn-row">
       <button class="ghost-btn" onclick="openModal('material')">+ Додати матеріал</button>
       <button class="ghost-btn" onclick="openModal('materialPayment')">+ Додати оплату</button>
-      <button class="ghost-btn" onclick="generateMaterialsReport()">📄 Звіт для замовника</button>
+      <button class="ghost-btn" onclick="openMaterialsReportPreview()">📄 Звіт для замовника</button>
       <button class="ghost-btn" onclick="openModal('materialReportsHistory')">Історія звітів</button>
       <button class="ghost-btn" onclick="openModal('materialPaymentsHistory')">Історія оплат</button>
     </div>
@@ -1829,18 +1839,26 @@ function renderModal() {
   }
   if (t === "materialReportView") {
     const o = getObj();
-    const rep = o ? (o.materialReports||[]).find(r => r.id === state.modal.id) : null;
-    const allItems = rep ? (o.materialItems||[]).filter(it => (rep.itemIds||[]).includes(it.id) && !it.isDebt) : [];
+    const preview = !!state.modal.preview;
+    let rep = null, allItems = [];
+    if (preview) {
+      allItems = o ? (o.materialItems||[]).filter(it => it.reportId === null && (it.type==="material"||it.type==="receipt") && !it.isDebt) : [];
+    } else {
+      rep = o ? (o.materialReports||[]).find(r => r.id === state.modal.id) : null;
+      allItems = rep ? (o.materialItems||[]).filter(it => (rep.itemIds||[]).includes(it.id) && !it.isDebt) : [];
+    }
     const materials = allItems.filter(it => it.type === "material");
     const receipts = allItems.filter(it => it.type === "receipt");
     const total = materials.reduce((s,m) => s + m.qty*m.price, 0) + receipts.reduce((s,r) => s + r.amount, 0);
     body = `
-    <h3>Акт по матеріалах №${rep?rep.number:""}</h3>
+    <h3>Акт по матеріалах${!preview && rep ? ` №${rep.number}` : ""}</h3>
     <div class="print-report">
       ${o ? `<div style="margin-bottom:12px;">
         <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
         ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
-        <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">Сформовано: ${rep?esc(fmtDateTime(rep.createdAt)):""}</div>
+        ${preview
+          ? `<div style="color:var(--amber);font-size:11.5px;margin-top:2px;font-weight:700;">Попередній перегляд — ще не збережено</div>`
+          : `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">Сформовано: ${rep?esc(fmtDateTime(rep.createdAt)):""}</div>`}
       </div>` : ""}
       <div class="group-label">Матеріали</div>
       ${materials.length ? materials.map(m => `
@@ -1869,10 +1887,21 @@ function renderModal() {
       </div>
     </div>
     <div class="modal-actions">
-      <button class="ghost-btn" onclick="openModal('materialReportsHistory')">← Історія</button>
-      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+      ${preview ? `
+        <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+        <button class="amber-btn" onclick="saveMaterialsReport()">Зберегти</button>
+      ` : `
+        <button class="ghost-btn" onclick="openModal('materialReportsHistory')">← Історія</button>
+        <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+      `}
     </div>`;
   }
+  if (t === "materialReportEmpty") body = `
+    <h3>Звіт для замовника</h3>
+    <div class="empty-slot">Немає нових позицій для звіту.</div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+    </div>`;
   if (t === "materialPaymentsHistory") {
     const o = getObj();
     const payments = o ? (o.materialItems||[]).filter(it => it.type==="payment").slice().sort((a,b) => b.createdAt-a.createdAt) : [];
@@ -2016,7 +2045,7 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
   submitPriceCategory, submitPriceUnit, deletePriceUnit,
   setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem,
-  generateMaterialsReport, viewMaterialReport });
+  openMaterialsReportPreview, saveMaterialsReport, viewMaterialReport });
 
 render();
 </script>
