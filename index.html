@@ -72,6 +72,32 @@ input, select { font-family: inherit; }
 .cols { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
 @media (max-width: 859px) { .cols { grid-template-columns: 1fr; } }
 
+/* ---------- Price: category / items split layout ---------- */
+.price-layout { display: flex; gap: 20px; align-items: flex-start; }
+.price-cat-pane {
+  width: 26%; min-width: 200px; max-width: 280px; flex-shrink: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px;
+}
+.price-cat-list { display: flex; flex-direction: column; gap: 2px; max-height: 560px; overflow-y: auto; margin-bottom: 12px; }
+.price-cat-row {
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-radius: 10px; cursor: pointer;
+}
+.price-cat-row:hover { background: rgba(255,255,255,0.04); }
+.price-cat-row.selected { background: var(--amber-soft); }
+.price-cat-name { flex: 1; font-weight: 700; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.price-cat-count { font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
+.price-items-pane { flex: 1; min-width: 0; }
+@media (max-width: 859px) {
+  .price-layout { flex-direction: column; gap: 14px; }
+  .price-cat-pane { width: 100%; max-width: none; padding: 12px; }
+  .price-cat-list {
+    flex-direction: row; max-height: none; overflow-x: auto; overflow-y: visible; gap: 8px; margin-bottom: 0;
+  }
+  .price-cat-row { flex-shrink: 0; white-space: nowrap; }
+  .price-cat-row .price-cat-menu-btn { display: none; }
+}
+
 /* ---------- Shared ---------- */
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
 .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; color: var(--amber); text-transform: uppercase; }
@@ -523,6 +549,7 @@ let state = {
   quick: "Робота",
   objSearch: "",
   priceSearch: "",
+  selectedPriceCategory: "all",
   openActionMenuId: null,
   expandedReportIds: {},
   notesQuery: "",
@@ -1143,6 +1170,42 @@ function createPriceCategory(name) {
   const n = name.trim(); if (!n) return;
   if (!state.data.priceCategories.includes(n)) state.data.priceCategories.push(n);
   saveData(); closeModal();
+}
+function renamePriceCategory(oldName, newName) {
+  const n = (newName||"").trim(); if (!n || n === oldName) { closeModal(); return; }
+  (state.data.priceItems||[]).forEach(p => { if (p.category === oldName) p.category = n; });
+  state.data.priceCategories = (state.data.priceCategories||[]).filter(c => c !== oldName);
+  if (!state.data.priceCategories.includes(n)) state.data.priceCategories.push(n);
+  if (state.selectedPriceCategory === oldName) state.selectedPriceCategory = n;
+  saveData(); closeModal();
+}
+function deletePriceCategory(name) {
+  const linkedItems = (state.data.priceItems||[]).filter(p => p.category === name);
+  if (linkedItems.length) {
+    state.modal = { type: "blockedDelete",
+      title: "Неможливо видалити категорію",
+      message: `Ця категорія використовується позиціями прайсу: ${linkedItems.map(p => `«${p.name}»`).join(", ")}. Спершу видаліть або перенесіть ці позиції в іншу категорію.`,
+    };
+    if (state.openActionMenuId === name) state.openActionMenuId = null;
+    render();
+    return;
+  }
+  state.data.priceCategories = (state.data.priceCategories||[]).filter(c => c !== name);
+  if (state.selectedPriceCategory === name) state.selectedPriceCategory = "all";
+  if (state.openActionMenuId === name) state.openActionMenuId = null;
+  saveData(); render();
+}
+function selectPriceCategory(cat) {
+  state.selectedPriceCategory = cat;
+  state.priceSearch = "";
+  state.openActionMenuId = null;
+  render();
+}
+function openNewPriceItem() {
+  const cat = state.selectedPriceCategory;
+  const presetCategory = (cat && cat !== "all" && cat !== "Без категорії") ? cat : "";
+  state.modal = { type: "price", id: null, presetCategory };
+  render();
 }
 function createPriceUnit(name) {
   state.data.priceUnits = state.data.priceUnits || [];
@@ -1771,8 +1834,9 @@ function renderRoomDetail(obj, room) {
 
 function renderPrice() {
   const allItems = state.data.priceItems || [];
+  const realCategories = (state.data.priceCategories || []).slice().sort((a,b) => a.localeCompare(b, "uk"));
 
-  if (allItems.length === 0) {
+  if (allItems.length === 0 && realCategories.length === 0) {
     return `
       <div class="eyebrow">Бібліотека</div>
       <div class="h1">Прайс-лист</div>
@@ -1788,41 +1852,77 @@ function renderPrice() {
     `;
   }
 
-  const q = state.priceSearch || "";
-  const items = allItems.filter(p => priceMatchesSearch(p, q));
-  const categories = [...new Set(items.map(p => p.category || "Без категорії"))].sort((a,b) => a.localeCompare(b, "uk"));
+  const hasUncategorized = allItems.some(p => !p.category);
+  const selectedCat = state.selectedPriceCategory || "all";
+  const q = (state.priceSearch || "").trim();
+  const countFor = cat => allItems.filter(p => (p.category||"Без категорії") === cat).length;
+
+  let visibleItems, showCategoryTag;
+  if (q) {
+    visibleItems = allItems.filter(p => priceMatchesSearch(p, q));
+    showCategoryTag = true;
+  } else if (selectedCat === "all") {
+    visibleItems = allItems.slice();
+    showCategoryTag = false;
+  } else {
+    visibleItems = allItems.filter(p => (p.category||"Без категорії") === selectedCat);
+    showCategoryTag = false;
+  }
+  visibleItems.sort((a,b) => a.name.localeCompare(b.name, "uk"));
 
   return `
     <div class="eyebrow">Бібліотека</div>
     <div class="h1">Прайс-лист</div>
-    <div class="btn-row" style="margin-top:14px;margin-bottom:18px;">
-      <button class="ghost-btn" onclick="openModal('priceCategory')">+ Категорія</button>
-      <button class="ghost-btn" onclick="openModal('priceUnits')">База одиниць виміру</button>
-    </div>
-    <div class="panel">
-      <div class="panel-head">
-        <div><div class="group-label" style="margin-top:0;">Типові роботи</div></div>
-        <div class="count-badge">${allItems.length}</div>
+    <div class="price-layout" style="margin-top:14px;">
+      <div class="price-cat-pane">
+        <div class="price-cat-list">
+          <div class="price-cat-row ${selectedCat==="all"?"selected":""}" onclick="selectPriceCategory('all')">
+            <div class="price-cat-name">Усі</div>
+            <div class="price-cat-count mono">${allItems.length}</div>
+          </div>
+          ${realCategories.map(cat => `
+            <div class="price-cat-row ${selectedCat===cat?"selected":""}" onclick="selectPriceCategory('${esc(cat)}')">
+              <div class="price-cat-name">${esc(cat)}</div>
+              <div class="price-cat-count mono">${countFor(cat)}</div>
+              <button class="w-del price-cat-menu-btn" title="Опції" onclick="toggleActionMenu('${esc(cat)}', event)">⋯</button>
+              ${state.openActionMenuId === cat ? categoryActionMenuHtml(cat) : ""}
+            </div>
+          `).join("")}
+          ${hasUncategorized ? `
+            <div class="price-cat-row ${selectedCat==="Без категорії"?"selected":""}" onclick="selectPriceCategory('Без категорії')">
+              <div class="price-cat-name">Без категорії</div>
+              <div class="price-cat-count mono">${countFor("Без категорії")}</div>
+            </div>
+          ` : ""}
+        </div>
+        <button class="dashed-btn" style="margin-top:0;" onclick="openModal('priceCategory')">+ Категорія</button>
       </div>
-      <div class="search-wrap">
-        <span class="search-ico">${svgIcon("search", 16)}</span>
-        <input id="price-search-input" type="text" placeholder="Пошук за назвою чи категорією…" value="${esc(q)}" oninput="setPriceSearch(this.value)">
+      <div class="price-items-pane">
+        <div class="panel">
+          <div class="search-wrap">
+            <span class="search-ico">${svgIcon("search", 16)}</span>
+            <input id="price-search-input" type="text" placeholder="Пошук за назвою чи категорією…" value="${esc(q)}" oninput="setPriceSearch(this.value)">
+          </div>
+          <div class="btn-row" style="margin-bottom:14px;">
+            <button class="ghost-btn" onclick="openNewPriceItem()">+ Нова позиція</button>
+            <button class="ghost-btn" onclick="openModal('priceUnits')">База одиниць виміру</button>
+          </div>
+          ${visibleItems.length ? visibleItems.map(p => priceRowHtml(p, showCategoryTag)).join("") : `<div class="empty-slot">${q ? "Нічого не знайдено." : "У цій категорії ще немає позицій."}</div>`}
+        </div>
       </div>
-      ${categories.length ? categories.map(cat => `
-        <div class="group-label">${esc(cat)}</div>
-        ${items.filter(p => (p.category||"Без категорії") === cat).map(priceRowHtml).join("")}
-      `).join("") : `<div class="empty-slot">Нічого не знайдено.</div>`}
-      <button class="dashed-btn" onclick="openModal('price')">+ Нова позиція</button>
     </div>
     ${state.openActionMenuId ? `<div class="menu-overlay" onclick="closeActionMenu()"></div>` : ""}
   `;
 }
 
-function priceRowHtml(p) {
+function priceRowHtml(p, showCategory) {
   return `<div class="work-row">
     <div style="flex:1">
       <div class="w-name">${esc(p.name)}</div>
-      <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
+      <div class="w-meta">
+        ${showCategory ? `<span class="mono">${esc(p.category||"Без категорії")}</span>` : ""}
+        <span class="mono">${esc(p.unit)}</span><span class="mono">${p.price} €/${esc(p.unit)}</span>
+      </div>
     </div>
     <button class="w-del" title="Опції" onclick="toggleActionMenu('${p.id}', event)">⋯</button>
     ${state.openActionMenuId === p.id ? priceActionMenuHtml(p) : ""}
@@ -1835,6 +1935,16 @@ function priceActionMenuHtml(p) {
       <button class="obj-menu-item" onclick="closeActionMenu(); openModal('price','${p.id}')">Редагувати</button>
       <div class="obj-menu-sep"></div>
       <button class="obj-menu-item danger" onclick="closeActionMenu(); deletePriceItem('${p.id}')">Видалити</button>
+    </div>
+  `;
+}
+
+function categoryActionMenuHtml(cat) {
+  return `
+    <div class="obj-menu" onclick="event.stopPropagation()">
+      <button class="obj-menu-item" onclick="closeActionMenu(); openModal('priceCategory','${esc(cat)}')">Перейменувати</button>
+      <div class="obj-menu-sep"></div>
+      <button class="obj-menu-item danger" onclick="closeActionMenu(); deletePriceCategory('${esc(cat)}')">Видалити</button>
     </div>
   `;
 }
@@ -2049,12 +2159,13 @@ function renderModal() {
     const editing = state.modal.id ? (state.data.priceItems||[]).find(p => p.id === state.modal.id) : null;
     const categories = state.data.priceCategories || [];
     const units = state.data.priceUnits || [];
+    const presetCategory = state.modal.presetCategory || "";
     body = `
     <h3>${editing ? "Редагувати позицію" : "Нова позиція прайсу"}</h3>
     <div class="field"><label>Назва роботи</label><input id="m-name" placeholder="Напр. Укладання плитки (підлога)" value="${editing ? esc(editing.name) : ""}"></div>
     <div class="field"><label>Категорія</label>
       <select id="m-category">
-        ${categories.length ? categories.map(c => `<option value="${esc(c)}" ${editing && editing.category===c ? "selected" : ""}>${esc(c)}</option>`).join("") : `<option value="">— спершу додайте категорію —</option>`}
+        ${categories.length ? categories.map(c => `<option value="${esc(c)}" ${(editing ? editing.category===c : presetCategory===c) ? "selected" : ""}>${esc(c)}</option>`).join("") : `<option value="">— спершу додайте категорію —</option>`}
       </select>
     </div>
     <div style="display:flex;gap:10px;">
@@ -2070,13 +2181,16 @@ function renderModal() {
       <button class="amber-btn" onclick="submitPrice('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Додати"}</button>
     </div>`;
   }
-  if (t === "priceCategory") body = `
-    <h3>Нова категорія</h3>
-    <div class="field"><label>Назва категорії</label><input id="m-name" placeholder="Напр. Плитка"></div>
+  if (t === "priceCategory") {
+    const editingName = state.modal.id || null;
+    body = `
+    <h3>${editingName ? "Перейменувати категорію" : "Нова категорія"}</h3>
+    <div class="field"><label>Назва категорії</label><input id="m-name" placeholder="Напр. Плитка" value="${editingName ? esc(editingName) : ""}"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitPriceCategory()">Додати</button>
+      <button class="amber-btn" onclick="submitPriceCategory()">${editingName ? "Зберегти" : "Додати"}</button>
     </div>`;
+  }
   if (t === "priceUnits") {
     const units = state.data.priceUnits || [];
     body = `
@@ -2588,7 +2702,11 @@ function submitPrice(id) {
   const price = Number(val("m-price")) || 0;
   if (id) updatePriceItem(id, category, n, unit, price); else createPriceItem(category, n, unit, price);
 }
-function submitPriceCategory() { const n = val("m-name"); if (!n) return; createPriceCategory(n); }
+function submitPriceCategory() {
+  const n = val("m-name"); if (!n) return;
+  const editingName = state.modal && state.modal.id;
+  if (editingName) renamePriceCategory(editingName, n); else createPriceCategory(n);
+}
 function submitPriceUnit() { const n = val("m-newunit"); if (!n) return; createPriceUnit(n); }
 function handleClientSelectChange(value) {
   if (value !== "__new__") return;
