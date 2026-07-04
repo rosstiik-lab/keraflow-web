@@ -2146,9 +2146,15 @@ function renderClientPriceOverridesSection(c) {
 }
 function clientPriceOverrideRowHtml(c, p) {
   const override = (c.priceOverrides||[]).find(o => o.priceItemId === p.id);
+  let diffHtml = "";
+  if (override && p.price) {
+    const diffPct = Math.round(((override.price - p.price) / p.price) * 100);
+    if (diffPct > 0) diffHtml = `<span class="mono" style="font-size:10px;font-weight:800;color:var(--green);">+${diffPct}%</span>`;
+    else if (diffPct < 0) diffHtml = `<span class="mono" style="font-size:10px;font-weight:800;color:var(--red);">−${Math.abs(diffPct)}%</span>`;
+  }
   return `<div class="work-row">
     <div style="flex:1">
-      <div class="w-name">${esc(p.name)}${override ? ` <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : ""}</div>
+      <div class="w-name">${esc(p.name)}${override ? ` <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span> ${diffHtml}` : ""}</div>
       <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">база: ${p.price} €/${esc(p.unit)}</span></div>
     </div>
     <input type="number" inputmode="decimal" class="inline-num-input" placeholder="База" value="${override ? override.price : ""}"
