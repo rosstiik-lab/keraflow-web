@@ -100,6 +100,36 @@ input, select { font-family: inherit; }
   .price-cat-row .price-cat-menu-btn { display: none; }
 }
 
+/* ---------- Notebook (Довідник): category / entries split layout ---------- */
+/* Mirrors the Price split layout exactly (fixed 240px category pane, own 600px breakpoint). */
+.nb-layout { display: flex; gap: 20px; align-items: flex-start; }
+.nb-cat-pane {
+  width: 240px; flex-shrink: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px;
+}
+.nb-cat-list { display: flex; flex-direction: column; gap: 2px; max-height: 560px; overflow-y: auto; margin-bottom: 12px; }
+.nb-cat-row {
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-radius: 10px; cursor: pointer;
+}
+.nb-cat-row:hover { background: rgba(255,255,255,0.04); }
+.nb-cat-row.selected { background: var(--amber-soft); }
+.nb-cat-name { flex: 1; font-weight: 700; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-cat-count { font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
+.nb-items-pane { flex: 1; min-width: 0; }
+.nb-entry-preview {
+  font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+@media (max-width: 599px) {
+  .nb-layout { flex-direction: column; gap: 14px; }
+  .nb-cat-pane { width: 100%; padding: 12px; }
+  .nb-cat-list {
+    flex-direction: row; max-height: none; overflow-x: auto; overflow-y: visible; gap: 8px; margin-bottom: 0;
+  }
+  .nb-cat-row { flex-shrink: 0; white-space: nowrap; }
+}
+
 /* ---------- Shared ---------- */
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
 .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; color: var(--amber); text-transform: uppercase; }
@@ -560,6 +590,8 @@ let state = {
   expandedReportIds: {},
   notesQuery: "",
   selectedNoteId: null,
+  selectedNotebookCategory: "all",
+  notebookSearch: "",
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
 };
@@ -636,6 +668,12 @@ function migrateData(data) {
   data.clients.forEach(c => {
     if (c.priceOverrides === undefined) c.priceOverrides = [];
     if (c.quotes === undefined) c.quotes = [];
+  });
+  data.notebookCategories = data.notebookCategories || [];
+  data.notebookEntries = data.notebookEntries || [];
+  data.notebookEntries.forEach(e => {
+    if (e.category === undefined) e.category = "";
+    if (e.updatedAt === undefined) e.updatedAt = e.createdAt || Date.now();
   });
   return data;
 }
@@ -1244,6 +1282,52 @@ function deletePriceUnit(unit) {
   saveData(); render();
 }
 
+/* ---------- Notebook (Довідник) ---------- */
+function selectNotebookCategory(cat) {
+  state.selectedNotebookCategory = cat;
+  state.notebookSearch = "";
+  render();
+}
+function setNotebookSearch(q) { state.notebookSearch = q; render(); }
+function createNotebookCategory(name) {
+  state.data.notebookCategories = state.data.notebookCategories || [];
+  const n = name.trim(); if (!n) return;
+  if (!state.data.notebookCategories.includes(n)) state.data.notebookCategories.push(n);
+  saveData(); closeModal();
+}
+function openNotebookEntryModal(id) {
+  const cat = state.selectedNotebookCategory;
+  const presetCategory = id ? "" : ((cat && cat !== "all" && cat !== "Без категорії") ? cat : "");
+  state.modal = { type: "notebookEntry", id: id || null, presetCategory };
+  render();
+}
+function submitNotebookEntry() {
+  const title = val("m-title"); if (!title) return;
+  const category = val("m-category");
+  const text = val("m-text");
+  if (category && !(state.data.notebookCategories||[]).includes(category)) {
+    state.data.notebookCategories = state.data.notebookCategories || [];
+    state.data.notebookCategories.push(category);
+  }
+  const id = state.modal && state.modal.id;
+  if (id) updateNotebookEntry(id, title, category, text);
+  else createNotebookEntry(title, category, text);
+}
+function createNotebookEntry(title, category, text) {
+  state.data.notebookEntries = state.data.notebookEntries || [];
+  state.data.notebookEntries.push({ id: uid("nbentry"), title, category, text, createdAt: Date.now(), updatedAt: Date.now() });
+  saveData(); closeModal();
+}
+function updateNotebookEntry(id, title, category, text) {
+  const e = (state.data.notebookEntries||[]).find(e => e.id === id); if (!e) return;
+  e.title = title; e.category = category; e.text = text; e.updatedAt = Date.now();
+  saveData(); closeModal();
+}
+function deleteNotebookEntry(id) {
+  state.data.notebookEntries = (state.data.notebookEntries||[]).filter(e => e.id !== id);
+  saveData(); closeModal();
+}
+
 /* ---------- Clients ---------- */
 function createClient(name, phone, address, note) {
   state.data.clients = state.data.clients || [];
@@ -1440,7 +1524,7 @@ function renderPage() {
     case "objects":   return renderObjects();
     case "clients":   return renderClients();
     case "price":     return renderPrice();
-    case "directory": return renderPlaceholder(svgIcon("directory",40),"Довідник","Модуль у розробці.");
+    case "directory": return renderNotebook();
     case "workers":   return renderPlaceholder(svgIcon("workers",40),"Працівники","Модуль у розробці.");
     case "settings":  return renderSettings();
   }
@@ -2082,6 +2166,89 @@ function categoryActionMenuHtml(cat) {
   `;
 }
 
+function renderNotebook() {
+  const allEntries = state.data.notebookEntries || [];
+  const realCategories = (state.data.notebookCategories || []).slice().sort((a,b) => a.localeCompare(b, "uk"));
+
+  if (allEntries.length === 0 && realCategories.length === 0) {
+    return `
+      <div class="eyebrow">Довідник</div>
+      <div class="h1">Довідник майстра</div>
+      <div class="panel placeholder" style="margin-top:14px;">
+        <div class="big">${svgIcon("directory", 40)}</div>
+        <div class="t">У довіднику ще немає записів</div>
+        <button class="amber-btn" style="margin-top:14px;" onclick="openNotebookEntryModal()">+ Новий запис</button>
+      </div>
+    `;
+  }
+
+  const hasUncategorized = allEntries.some(e => !e.category);
+  const selectedCat = state.selectedNotebookCategory || "all";
+  const q = (state.notebookSearch || "").trim().toLowerCase();
+  const countFor = cat => allEntries.filter(e => (e.category||"Без категорії") === cat).length;
+
+  let visibleEntries;
+  if (q) {
+    visibleEntries = allEntries.filter(e =>
+      e.title.toLowerCase().includes(q) ||
+      (e.text||"").toLowerCase().includes(q) ||
+      (e.category||"").toLowerCase().includes(q)
+    );
+  } else if (selectedCat === "all") {
+    visibleEntries = allEntries.slice();
+  } else {
+    visibleEntries = allEntries.filter(e => (e.category||"Без категорії") === selectedCat);
+  }
+  visibleEntries.sort((a,b) => b.updatedAt - a.updatedAt);
+
+  return `
+    <div class="eyebrow">Довідник</div>
+    <div class="h1">Довідник майстра</div>
+    <div class="nb-layout" style="margin-top:14px;">
+      <div class="nb-cat-pane">
+        <div class="nb-cat-list">
+          <div class="nb-cat-row ${selectedCat==="all"?"selected":""}" onclick="selectNotebookCategory('all')">
+            <div class="nb-cat-name">Усі</div>
+            <div class="nb-cat-count mono">${allEntries.length}</div>
+          </div>
+          ${realCategories.map(cat => `
+            <div class="nb-cat-row ${selectedCat===cat?"selected":""}" onclick="selectNotebookCategory('${esc(cat)}')">
+              <div class="nb-cat-name">${esc(cat)}</div>
+              <div class="nb-cat-count mono">${countFor(cat)}</div>
+            </div>
+          `).join("")}
+          ${hasUncategorized ? `
+            <div class="nb-cat-row ${selectedCat==="Без категорії"?"selected":""}" onclick="selectNotebookCategory('Без категорії')">
+              <div class="nb-cat-name">Без категорії</div>
+              <div class="nb-cat-count mono">${countFor("Без категорії")}</div>
+            </div>
+          ` : ""}
+        </div>
+        <button class="dashed-btn" style="margin-top:0;" onclick="openModal('notebookCategory')">+ Категорія</button>
+      </div>
+      <div class="nb-items-pane">
+        <div class="panel">
+          <div class="search-wrap">
+            <span class="search-ico">${svgIcon("search", 16)}</span>
+            <input id="notebook-search-input" type="text" placeholder="Пошук за заголовком, текстом чи категорією…" value="${esc(state.notebookSearch||"")}" oninput="setNotebookSearch(this.value)">
+          </div>
+          <button class="ghost-btn" style="margin-bottom:14px;" onclick="openNotebookEntryModal()">+ Новий запис</button>
+          ${visibleEntries.length ? visibleEntries.map(notebookEntryCardHtml).join("") : `<div class="empty-slot">${q ? "Нічого не знайдено." : "У цій категорії ще немає записів."}</div>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+function notebookEntryCardHtml(e) {
+  return `<div class="work-row" style="cursor:pointer;align-items:flex-start;" onclick="openNotebookEntryModal('${e.id}')">
+    <div style="flex:1;min-width:0;">
+      <div class="w-name">${esc(e.title)}</div>
+      ${e.text ? `<div class="nb-entry-preview">${esc(e.text)}</div>` : ""}
+      <div class="w-meta" style="margin-top:4px;"><span class="mono">${esc(e.category||"Без категорії")}</span></div>
+    </div>
+  </div>`;
+}
+
 function renderClients() {
   const clients = state.data.clients || [];
   return `<div class="cols">
@@ -2372,6 +2539,46 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitPriceCategory()">${editingName ? "Зберегти" : "Додати"}</button>
+    </div>`;
+  }
+  if (t === "notebookCategory") body = `
+    <h3>Нова категорія</h3>
+    <div class="field"><label>Назва категорії</label><input id="m-name" placeholder="Напр. Матеріали"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitNotebookCategory()">Додати</button>
+    </div>`;
+  if (t === "notebookEntry") {
+    const entry = state.modal.id ? (state.data.notebookEntries||[]).find(e => e.id === state.modal.id) : null;
+    const categories = (state.data.notebookCategories || []).slice().sort((a,b) => a.localeCompare(b, "uk"));
+    const presetCategory = state.modal.presetCategory || "";
+    body = `
+    <h3>${entry ? "Редагувати запис" : "Новий запис"}</h3>
+    <div class="field"><label>Заголовок</label><input id="m-title" placeholder="Напр. Затирка мозаїки" value="${entry ? esc(entry.title) : ""}"></div>
+    <div class="field">
+      <label>Категорія</label>
+      <input id="m-category" list="nb-category-list" placeholder="Напр. Матеріали" value="${entry ? esc(entry.category||"") : esc(presetCategory)}">
+      <datalist id="nb-category-list">
+        ${categories.map(c => `<option value="${esc(c)}">`).join("")}
+      </datalist>
+    </div>
+    <div class="field"><label>Текст</label><textarea id="m-text" placeholder="Напр. Затирка мозаїки епоксидкою: 1,2 кг на м²" rows="6">${entry ? esc(entry.text||"") : ""}</textarea></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      ${entry ? `<button class="danger-btn" onclick="openModal('deleteNotebookEntry','${entry.id}')">Видалити</button>` : ""}
+      <button class="amber-btn" onclick="submitNotebookEntry()">${entry ? "Зберегти" : "Додати"}</button>
+    </div>`;
+  }
+  if (t === "deleteNotebookEntry") {
+    const entry = (state.data.notebookEntries||[]).find(e => e.id === state.modal.id);
+    if (entry) body = `
+    <h3>Видалити запис?</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+      Видалити запис «${esc(entry.title)}»? Це незворотна дія.
+    </p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="danger-btn" onclick="deleteNotebookEntry('${entry.id}')">Видалити</button>
     </div>`;
   }
   if (t === "priceUnits") {
@@ -3038,6 +3245,7 @@ function submitPriceCategory() {
   if (editingName) renamePriceCategory(editingName, n); else createPriceCategory(n);
 }
 function submitPriceUnit() { const n = val("m-newunit"); if (!n) return; createPriceUnit(n); }
+function submitNotebookCategory() { const n = val("m-name"); if (!n) return; createNotebookCategory(n); }
 function handleClientSelectChange(value) {
   if (value !== "__new__") return;
   const pending = {
