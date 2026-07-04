@@ -592,6 +592,8 @@ let state = {
   selectedNoteId: null,
   selectedNotebookCategory: "all",
   notebookSearch: "",
+  selectedWorkerId: null,
+  workerSearch: "",
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
 };
@@ -675,6 +677,9 @@ function migrateData(data) {
     if (e.category === undefined) e.category = "";
     if (e.updatedAt === undefined) e.updatedAt = e.createdAt || Date.now();
   });
+  data.workers = data.workers || [];
+  data.workerEntries = data.workerEntries || [];
+  data.workerPayments = data.workerPayments || [];
   return data;
 }
 function loadData() {
@@ -1328,6 +1333,86 @@ function deleteNotebookEntry(id) {
   saveData(); closeModal();
 }
 
+/* ---------- Workers (Працівники) ---------- */
+function getWorker(id) { return (state.data.workers||[]).find(w => w.id === id) || null; }
+function selectWorker(id) { state.selectedWorkerId = id; render(); }
+function setWorkerSearch(q) { state.workerSearch = q; render(); }
+function createWorker(name, phone, role, dayRate, note) {
+  state.data.workers = state.data.workers || [];
+  const w = { id: uid("worker"), name, phone, role, dayRate: Number(dayRate)||0, note, createdAt: Date.now() };
+  state.data.workers.push(w);
+  state.selectedWorkerId = w.id;
+  saveData(); closeModal();
+}
+function updateWorker(id, name, phone, role, dayRate, note) {
+  const w = getWorker(id); if (!w) return;
+  w.name = name; w.phone = phone; w.role = role; w.dayRate = Number(dayRate)||0; w.note = note;
+  saveData(); closeModal();
+}
+function deleteWorker(id) {
+  const entriesCount = (state.data.workerEntries||[]).filter(e => e.workerId === id).length;
+  const paymentsCount = (state.data.workerPayments||[]).filter(p => p.workerId === id).length;
+  if (entriesCount || paymentsCount) {
+    const parts = [];
+    if (entriesCount) parts.push(`${entriesCount} записів виробітку`);
+    if (paymentsCount) parts.push(`${paymentsCount} виплат`);
+    state.modal = { type: "blockedDelete",
+      title: "Неможливо видалити працівника",
+      message: `Неможливо видалити працівника — у нього є ${parts.join(" і ")}. Спершу видаліть ці записи.`,
+    };
+    if (state.openActionMenuId === id) state.openActionMenuId = null;
+    render();
+    return;
+  }
+  state.data.workers = (state.data.workers||[]).filter(w => w.id !== id);
+  if (state.selectedWorkerId === id) state.selectedWorkerId = null;
+  if (state.openActionMenuId === id) state.openActionMenuId = null;
+  saveData(); render();
+}
+function workerEarned(w) {
+  return (state.data.workerEntries||[]).filter(e => e.workerId === w.id).reduce((s,e) => s + e.days*w.dayRate, 0);
+}
+function workerPaid(w) {
+  return (state.data.workerPayments||[]).filter(p => p.workerId === w.id).reduce((s,p) => s + p.amount, 0);
+}
+function workerDebt(w) { return workerEarned(w) - workerPaid(w); }
+function openWorkerEntryModal(id) {
+  state.modal = { type: "workerEntry", id: id || null };
+  render();
+}
+function openWorkerPaymentModal(id) {
+  state.modal = { type: "workerPayment", id: id || null };
+  render();
+}
+function createWorkerEntry(workerId, objectId, date, days, note) {
+  state.data.workerEntries = state.data.workerEntries || [];
+  state.data.workerEntries.push({ id: uid("wentry"), workerId, objectId: objectId||null, date, days: Number(days)||0, note });
+  saveData(); closeModal();
+}
+function updateWorkerEntry(id, objectId, date, days, note) {
+  const e = (state.data.workerEntries||[]).find(e => e.id === id); if (!e) return;
+  e.objectId = objectId||null; e.date = date; e.days = Number(days)||0; e.note = note;
+  saveData(); closeModal();
+}
+function deleteWorkerEntry(id) {
+  state.data.workerEntries = (state.data.workerEntries||[]).filter(e => e.id !== id);
+  saveData(); closeModal();
+}
+function createWorkerPayment(workerId, amount, date, note) {
+  state.data.workerPayments = state.data.workerPayments || [];
+  state.data.workerPayments.push({ id: uid("wpay"), workerId, amount: Number(amount)||0, date, note });
+  saveData(); closeModal();
+}
+function updateWorkerPayment(id, amount, date, note) {
+  const p = (state.data.workerPayments||[]).find(p => p.id === id); if (!p) return;
+  p.amount = Number(amount)||0; p.date = date; p.note = note;
+  saveData(); closeModal();
+}
+function deleteWorkerPayment(id) {
+  state.data.workerPayments = (state.data.workerPayments||[]).filter(p => p.id !== id);
+  saveData(); closeModal();
+}
+
 /* ---------- Clients ---------- */
 function createClient(name, phone, address, note) {
   state.data.clients = state.data.clients || [];
@@ -1525,7 +1610,7 @@ function renderPage() {
     case "clients":   return renderClients();
     case "price":     return renderPrice();
     case "directory": return renderNotebook();
-    case "workers":   return renderPlaceholder(svgIcon("workers",40),"Працівники","Модуль у розробці.");
+    case "workers":   return renderWorkers();
     case "settings":  return renderSettings();
   }
 }
@@ -2341,6 +2426,115 @@ function clientPriceOverrideRowHtml(c, p) {
   </div>`;
 }
 
+function renderWorkers() {
+  const workers = (state.data.workers || []).slice();
+  const q = (state.workerSearch || "").trim().toLowerCase();
+  const filtered = q ? workers.filter(w => w.name.toLowerCase().includes(q) || (w.role||"").toLowerCase().includes(q)) : workers;
+  filtered.sort((a,b) => a.name.localeCompare(b.name, "uk"));
+  return `<div class="cols">
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="eyebrow">Команда</div><div class="h1">Працівники</div></div>
+        <div class="count-badge">${workers.length}</div>
+      </div>
+      <div class="search-wrap">
+        <span class="search-ico">${svgIcon("search", 16)}</span>
+        <input id="worker-search-input" type="text" placeholder="Пошук за іменем чи роллю…" value="${esc(state.workerSearch||"")}" oninput="setWorkerSearch(this.value)">
+      </div>
+      ${filtered.map(w => workerRowHtml(w)).join("") || `<div class="empty-slot">${q ? "Нічого не знайдено." : "Ще немає жодного працівника."}</div>`}
+      <button class="dashed-btn" onclick="openModal('worker')">+ Працівник</button>
+    </div>
+    <div>${renderWorkerDetail()}</div>
+  </div>`;
+}
+function workerRowHtml(w) {
+  const sel = w.id === state.selectedWorkerId;
+  const debt = workerDebt(w);
+  return `<div class="obj-row ${sel?"selected":""}" onclick="selectWorker('${w.id}')">
+    <div class="obj-row-icon">${svgIcon("workers", 18)}</div>
+    <div>
+      <div class="obj-row-name">${esc(w.name)}</div>
+      ${w.role ? `<div class="obj-row-addr">${esc(w.role)}</div>` : ""}
+      ${debt > 0.005 ? `<div class="obj-row-status" style="color:var(--red);">Борг: ${fmtEUR(debt)}</div>` : ""}
+    </div>
+  </div>`;
+}
+function renderWorkerDetail() {
+  const w = getWorker(state.selectedWorkerId);
+  if (!w) return `<div class="panel placeholder"><div class="big">${svgIcon("workers", 40)}</div><div class="t">Оберіть працівника</div>Або створіть першого працівника зліва.</div>`;
+
+  const earned = workerEarned(w);
+  const paid = workerPaid(w);
+  const debt = earned - paid;
+
+  const entries = (state.data.workerEntries||[]).filter(e => e.workerId === w.id).map(e => ({ ...e, kind: "entry", sortKey: e.date ? new Date(e.date).getTime() : 0 }));
+  const payments = (state.data.workerPayments||[]).filter(p => p.workerId === w.id).map(p => ({ ...p, kind: "payment", sortKey: p.date ? new Date(p.date).getTime() : 0 }));
+  const feed = [...entries, ...payments].sort((a,b) => b.sortKey - a.sortKey);
+
+  return `
+    <div class="banner-card">
+      <div>
+        <div class="banner-title">${esc(w.name)}</div>
+        ${w.phone ? `<div class="banner-addr">📞 ${esc(w.phone)}</div>` : ""}
+        ${w.role ? `<div class="banner-addr">🛠️ ${esc(w.role)}</div>` : ""}
+        <div class="banner-addr">${fmtEUR(w.dayRate)}/день</div>
+        ${w.note ? `<div class="banner-addr">📝 ${esc(w.note)}</div>` : ""}
+      </div>
+      <div style="position:relative;">
+        <button class="obj-menu-btn" style="position:static;" onclick="toggleActionMenu('${w.id}', event)">⋯</button>
+        ${state.openActionMenuId === w.id ? workerActionMenuHtml(w) : ""}
+      </div>
+    </div>
+    <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); margin: 14px 0;">
+      <div class="mini-stat"><div class="mini-stat-label">ЗАРОБЛЕНО</div><div class="mini-stat-val mono">${fmtEUR(earned)}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">ВИПЛАЧЕНО</div><div class="mini-stat-val green mono">${fmtEUR(paid)}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">${debt < -0.005 ? "ПЕРЕПЛАТА" : "БОРГ ПРАЦІВНИКУ"}</div><div class="mini-stat-val ${debt<-0.005?"green":"amber"} mono">${fmtEUR(Math.abs(debt))}</div></div>
+    </div>
+    <div class="btn-row" style="margin-bottom:14px;">
+      <button class="ghost-btn" onclick="openWorkerEntryModal()">Додати дні</button>
+      <button class="ghost-btn" onclick="openWorkerPaymentModal()">Додати виплату</button>
+    </div>
+    <div class="section-card">
+      <div class="section-head">
+        <div><div class="eyebrow">Записи</div><div class="section-title">Виробіток і виплати</div></div>
+      </div>
+      ${feed.length ? feed.map(f => f.kind === "entry" ? workerEntryRowHtml(f, w) : workerPaymentRowHtml(f)).join("") : `<div class="empty-slot">Ще немає жодного запису.</div>`}
+    </div>
+    ${state.openActionMenuId === w.id ? `<div class="menu-overlay" onclick="closeActionMenu()"></div>` : ""}
+  `;
+}
+function workerActionMenuHtml(w) {
+  return `
+    <div class="obj-menu" onclick="event.stopPropagation()">
+      <button class="obj-menu-item" onclick="closeActionMenu(); openModal('worker','${w.id}')">Редагувати</button>
+      <div class="obj-menu-sep"></div>
+      <button class="obj-menu-item danger" onclick="closeActionMenu(); deleteWorker('${w.id}')">Видалити</button>
+    </div>
+  `;
+}
+function workerEntryRowHtml(e, w) {
+  const obj = e.objectId ? (state.data.objects||[]).find(o => o.id === e.objectId) : null;
+  const sum = e.days * w.dayRate;
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${e.days} дн.${obj ? ` · ${esc(obj.name)}` : ""} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Виробіток</span></div>
+      <div class="w-meta"><span class="mono">${esc(e.date||"—")}</span><span class="mono">${fmtEUR(sum)}</span>${e.note?`<span>${esc(e.note)}</span>`:""}</div>
+    </div>
+    <button class="w-del" title="Редагувати" onclick="openWorkerEntryModal('${e.id}')">✎</button>
+    <button class="w-del" title="Видалити" onclick="openModal('deleteWorkerEntry','${e.id}')">✕</button>
+  </div>`;
+}
+function workerPaymentRowHtml(p) {
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${fmtEUR(p.amount)} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;background:var(--green);color:#06120B;">Виплата</span></div>
+      <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
+    </div>
+    <button class="w-del" title="Редагувати" onclick="openWorkerPaymentModal('${p.id}')">✎</button>
+    <button class="w-del" title="Видалити" onclick="openModal('deleteWorkerPayment','${p.id}')">✕</button>
+  </div>`;
+}
+
 function renderSettings() {
   return `
     <div class="eyebrow">Система</div>
@@ -2610,6 +2804,77 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitClient('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Створити"}</button>
+    </div>`;
+  }
+  if (t === "worker") {
+    const editing = state.modal.id ? getWorker(state.modal.id) : null;
+    body = `
+    <h3>${editing ? "Редагувати працівника" : "Новий працівник"}</h3>
+    <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я працівника" value="${editing ? esc(editing.name) : ""}"></div>
+    <div class="field"><label>Телефон</label><input id="m-phone" placeholder="+385 ..." value="${editing ? esc(editing.phone||"") : ""}"></div>
+    <div class="field"><label>Роль</label><input id="m-role" placeholder="Напр. Плиточник" value="${editing ? esc(editing.role||"") : ""}"></div>
+    <div class="field"><label>Денна ставка (€/день)</label><input id="m-dayrate" type="number" inputmode="decimal" value="${editing ? editing.dayRate : ""}"></div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Додаткова інформація" value="${editing ? esc(editing.note||"") : ""}"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitWorker('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Створити"}</button>
+    </div>`;
+  }
+  if (t === "workerEntry") {
+    const editing = state.modal.id ? (state.data.workerEntries||[]).find(e => e.id === state.modal.id) : null;
+    const activeObjects = (state.data.objects||[]).filter(o => !o.archived);
+    body = `
+    <h3>${editing ? "Редагувати дні" : "Додати дні"}</h3>
+    <div class="field"><label>Об'єкт</label>
+      <select id="m-objectid">
+        <option value="">— без об'єкта —</option>
+        ${activeObjects.map(o => `<option value="${o.id}" ${editing && editing.objectId===o.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Дата</label><input id="m-date" type="date" value="${editing ? esc(editing.date||"") : ""}"></div>
+      <div class="field" style="flex:1"><label>Кількість днів</label><input id="m-days" type="number" step="0.5" inputmode="decimal" value="${editing ? editing.days : ""}"></div>
+    </div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково" value="${editing ? esc(editing.note||"") : ""}"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitWorkerEntry()">${editing ? "Зберегти" : "Додати"}</button>
+    </div>`;
+  }
+  if (t === "workerPayment") {
+    const editing = state.modal.id ? (state.data.workerPayments||[]).find(p => p.id === state.modal.id) : null;
+    body = `
+    <h3>${editing ? "Редагувати виплату" : "Нова виплата"}</h3>
+    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal" value="${editing ? editing.amount : ""}"></div>
+    <div class="field"><label>Дата</label><input id="m-date" type="date" value="${editing ? esc(editing.date||"") : ""}"></div>
+    <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково" value="${editing ? esc(editing.note||"") : ""}"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="submitWorkerPayment()">${editing ? "Зберегти" : "Додати"}</button>
+    </div>`;
+  }
+  if (t === "deleteWorkerEntry") {
+    const e = (state.data.workerEntries||[]).find(e => e.id === state.modal.id);
+    if (e) body = `
+    <h3>Видалити запис?</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+      Видалити запис про ${e.days} дн. від ${esc(e.date||"—")}?
+    </p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="danger-btn" onclick="deleteWorkerEntry('${e.id}')">Видалити</button>
+    </div>`;
+  }
+  if (t === "deleteWorkerPayment") {
+    const p = (state.data.workerPayments||[]).find(p => p.id === state.modal.id);
+    if (p) body = `
+    <h3>Видалити виплату?</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+      Видалити виплату ${fmtEUR(p.amount)} від ${esc(p.date||"—")}?
+    </p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="danger-btn" onclick="deleteWorkerPayment('${p.id}')">Видалити</button>
     </div>`;
   }
   if (t === "deleteObject") {
@@ -3273,6 +3538,32 @@ function submitClient(id) {
     return;
   }
   createClient(n, phone, addr, note);
+}
+function submitWorker(id) {
+  const n = val("m-name"); if (!n) return;
+  const phone = val("m-phone"), role = val("m-role"), note = val("m-note");
+  const dayRate = val("m-dayrate");
+  if (id) updateWorker(id, n, phone, role, dayRate, note);
+  else createWorker(n, phone, role, dayRate, note);
+}
+function submitWorkerEntry() {
+  const workerId = state.selectedWorkerId; if (!workerId) return;
+  const objectId = val("m-objectid");
+  const date = val("m-date");
+  const days = val("m-days"); if (!days) return;
+  const note = val("m-note");
+  const id = state.modal && state.modal.id;
+  if (id) updateWorkerEntry(id, objectId, date, days, note);
+  else createWorkerEntry(workerId, objectId, date, days, note);
+}
+function submitWorkerPayment() {
+  const workerId = state.selectedWorkerId; if (!workerId) return;
+  const amount = val("m-amount"); if (!amount) return;
+  const date = val("m-date");
+  const note = val("m-note");
+  const id = state.modal && state.modal.id;
+  if (id) updateWorkerPayment(id, amount, date, note);
+  else createWorkerPayment(workerId, amount, date, note);
 }
 function submitMaterialItem(id) {
   const o = getObj(); if (!o) return;
