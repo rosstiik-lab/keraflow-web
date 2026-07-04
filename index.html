@@ -1362,10 +1362,22 @@ function viewQuote(id) {
   state.modal = { type: "quoteView", id };
   render();
 }
+function quoteItemDiscountPct(it) {
+  const p = (state.data.priceItems||[]).find(p => p.id === it.priceItemId);
+  const basePrice = p ? p.price : it.price;
+  if (basePrice > 0 && it.price < basePrice) {
+    return Math.round(((basePrice - it.price) / basePrice) * 100);
+  }
+  return null;
+}
 function shareQuote(quoteId) {
   const c = getClient(state.selectedClientId); if (!c) return;
   const q = (c.quotes||[]).find(q => q.id === quoteId); if (!q) return;
-  const lines = q.items.map(it => `• ${it.name} — ${it.qty} ${it.unit} × ${fmtActEUR(it.price)} = ${fmtActEUR(it.qty*it.price)}`);
+  const lines = q.items.map(it => {
+    const discountPct = quoteItemDiscountPct(it);
+    const priceText = discountPct !== null ? `${fmtActEUR(it.price)} (−${discountPct}%)` : fmtActEUR(it.price);
+    return `• ${it.name} — ${it.qty} ${it.unit} × ${priceText} = ${fmtActEUR(it.qty*it.price)}`;
+  });
   const text = `Комерційна пропозиція №${q.number} для ${c.name}\n${lines.join("\n")}\n\nВсього: ${fmtActEUR(q.totalSum)}`;
   if (navigator.share) {
     navigator.share({ title: `Комерційна пропозиція №${q.number}`, text, url: location.href }).catch(() => {});
@@ -2256,7 +2268,7 @@ function renderModal() {
       `}
       <div style="display:flex;gap:10px;">
         <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing.qty}"></div>
-        <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing.price}"></div>
+        <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing.price}" disabled></div>
       </div>
       <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2">${esc(editing.note||"")}</textarea></div>
       <div class="modal-actions">
@@ -2264,55 +2276,65 @@ function renderModal() {
         <button class="amber-btn" onclick="submitWork()">Зберегти</button>
       </div>`;
     } else {
-      const priceItems = state.data.priceItems || [];
-      if (!priceItems.length) {
+      const obj = getObj();
+      if (!obj || !obj.clientId) {
         body = `
         <h3>Нова робота</h3>
-        <div class="empty-slot">У прайсі поки немає жодної позиції. Спочатку додайте роботи в розділі «Прайс».</div>
+        <div class="empty-slot">Спершу прив'яжіть об'єкт до замовника — ціни встановлюються в індивідуальному прайсі замовника.</div>
         <div class="modal-actions">
           <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-          <button class="amber-btn" onclick="closeModal(); setNav('price')">Перейти в Прайс</button>
+          <button class="amber-btn" onclick="openModal('object','${obj?obj.id:""}')">Прив'язати замовника</button>
         </div>`;
       } else {
-        const selPriceItem = state.modal.priceItemId ? priceItems.find(p => p.id === state.modal.priceItemId) : null;
-        const query = state.modal.pqQuery !== undefined ? state.modal.pqQuery : "";
-        const dropdownOpen = !!state.modal.pqOpen;
-        const matches = priceItems.filter(p => priceMatchesSearch(p, query));
-        const roomObj = getObj();
-        const priceForField = selPriceItem ? resolveClientPrice(roomObj ? roomObj.clientId : null, selPriceItem.id, selPriceItem.price) : 0;
-        body = `
-        <h3>Нова робота</h3>
-        <div class="field" style="position:relative;">
-          <label>Позиція з прайсу</label>
-          <input id="m-worksearch" placeholder="Почніть вводити назву роботи…" autocomplete="off"
-            value="${esc(query)}"
-            oninput="setWorkSearchQuery(this.value)"
-            onfocus="openWorkSearchDropdown()">
-          ${dropdownOpen ? `
-          <div class="combo-dropdown">
-            ${matches.length ? matches.map(p => `
-              <div class="combo-item" onmousedown="event.preventDefault(); pickWorkPriceItem('${p.id}')">
-                <div class="combo-item-name">${esc(p.name)}</div>
-                <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
-              </div>
-            `).join("") : `<div class="combo-empty">Нічого не знайдено. Перевірте прайс.</div>`}
-          </div>` : ""}
-        </div>
-        ${selPriceItem ? `
-          <div style="display:flex;gap:10px;">
-            <div class="field" style="flex:1"><label>Категорія</label><input value="${esc(selPriceItem.category||"Без категорії")}" disabled></div>
-            <div class="field" style="flex:1"><label>Одиниця</label><input value="${esc(selPriceItem.unit)}" disabled></div>
+        const priceItems = state.data.priceItems || [];
+        if (!priceItems.length) {
+          body = `
+          <h3>Нова робота</h3>
+          <div class="empty-slot">У прайсі поки немає жодної позиції. Спочатку додайте роботи в розділі «Прайс».</div>
+          <div class="modal-actions">
+            <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+            <button class="amber-btn" onclick="closeModal(); setNav('price')">Перейти в Прайс</button>
+          </div>`;
+        } else {
+          const selPriceItem = state.modal.priceItemId ? priceItems.find(p => p.id === state.modal.priceItemId) : null;
+          const query = state.modal.pqQuery !== undefined ? state.modal.pqQuery : "";
+          const dropdownOpen = !!state.modal.pqOpen;
+          const matches = priceItems.filter(p => priceMatchesSearch(p, query));
+          const priceForField = selPriceItem ? resolveClientPrice(obj.clientId, selPriceItem.id, selPriceItem.price) : 0;
+          body = `
+          <h3>Нова робота</h3>
+          <div class="field" style="position:relative;">
+            <label>Позиція з прайсу</label>
+            <input id="m-worksearch" placeholder="Почніть вводити назву роботи…" autocomplete="off"
+              value="${esc(query)}"
+              oninput="setWorkSearchQuery(this.value)"
+              onfocus="openWorkSearchDropdown()">
+            ${dropdownOpen ? `
+            <div class="combo-dropdown">
+              ${matches.length ? matches.map(p => `
+                <div class="combo-item" onmousedown="event.preventDefault(); pickWorkPriceItem('${p.id}')">
+                  <div class="combo-item-name">${esc(p.name)}</div>
+                  <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
+                </div>
+              `).join("") : `<div class="combo-empty">Нічого не знайдено. Перевірте прайс.</div>`}
+            </div>` : ""}
           </div>
-          <div style="display:flex;gap:10px;">
-            <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
-            <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${priceForField}"></div>
-          </div>
-          <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2"></textarea></div>
-        ` : `<div class="empty-slot">Оберіть позицію з прайсу вище.</div>`}
-        <div class="modal-actions">
-          <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-          <button class="amber-btn" onclick="submitWork()" ${!selPriceItem ? "disabled" : ""}>Додати</button>
-        </div>`;
+          ${selPriceItem ? `
+            <div style="display:flex;gap:10px;">
+              <div class="field" style="flex:1"><label>Категорія</label><input value="${esc(selPriceItem.category||"Без категорії")}" disabled></div>
+              <div class="field" style="flex:1"><label>Одиниця</label><input value="${esc(selPriceItem.unit)}" disabled></div>
+            </div>
+            <div style="display:flex;gap:10px;">
+              <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
+              <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${priceForField}" disabled></div>
+            </div>
+            <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2"></textarea></div>
+          ` : `<div class="empty-slot">Оберіть позицію з прайсу вище.</div>`}
+          <div class="modal-actions">
+            <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+            <button class="amber-btn" onclick="submitWork()" ${!selPriceItem ? "disabled" : ""}>Додати</button>
+          </div>`;
+        }
       }
     }
   }
@@ -2905,16 +2927,22 @@ function renderModal() {
             </tr>
           </thead>
           <tbody>
-            ${quote.items.map((it,idx) => `
+            ${quote.items.map((it,idx) => {
+              const discountPct = quoteItemDiscountPct(it);
+              const priceCell = discountPct !== null
+                ? `${fmtActEUR(it.price)} <span class="mono" style="font-size:10px;font-weight:800;color:var(--red);">−${discountPct}%</span>`
+                : fmtActEUR(it.price);
+              return `
               <tr>
                 <td>${idx+1}</td>
                 <td>${esc(it.name)}</td>
                 <td class="num">${it.qty}</td>
                 <td>${esc(it.unit)}</td>
-                <td class="num">${fmtActEUR(it.price)}</td>
+                <td class="num">${priceCell}</td>
                 <td class="num">${fmtActEUR(it.qty*it.price)}</td>
               </tr>
-            `).join("")}
+            `;
+            }).join("")}
           </tbody>
         </table>
       </div>
