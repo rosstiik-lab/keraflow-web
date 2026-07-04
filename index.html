@@ -1013,6 +1013,16 @@ function updatePriceItem(id, category, name, unit, price) {
   saveData(); closeModal();
 }
 function deletePriceItem(id) {
+  const linkedObjects = (state.data.objects || []).filter(o => o.rooms.some(r => r.works.some(w => w.priceItemId === id)));
+  if (linkedObjects.length) {
+    state.modal = { type: "blockedDelete",
+      title: "Неможливо видалити позицію прайсу",
+      message: `Ця позиція використовується в роботах об'єкта(ів): ${linkedObjects.map(o => `«${o.name}»`).join(", ")}. Спершу видаліть або замініть ці роботи.`,
+    };
+    if (state.openActionMenuId === id) state.openActionMenuId = null;
+    render();
+    return;
+  }
   state.data.priceItems = (state.data.priceItems || []).filter(p => p.id !== id);
   if (state.openActionMenuId === id) state.openActionMenuId = null;
   saveData(); render();
@@ -1030,6 +1040,15 @@ function createPriceUnit(name) {
   saveData(); render();
 }
 function deletePriceUnit(unit) {
+  const linkedItems = (state.data.priceItems || []).filter(p => p.unit === unit);
+  if (linkedItems.length) {
+    state.modal = { type: "blockedDelete",
+      title: "Неможливо видалити одиницю виміру",
+      message: `Ця одиниця виміру використовується позиціями прайсу: ${linkedItems.map(p => `«${p.name}»`).join(", ")}. Спершу змініть або видаліть ці позиції.`,
+    };
+    render();
+    return;
+  }
   state.data.priceUnits = (state.data.priceUnits || []).filter(u => u !== unit);
   saveData(); render();
 }
@@ -1046,6 +1065,15 @@ function updateClient(id, name, phone, address, note) {
   saveData(); closeModal();
 }
 function deleteClient(id) {
+  const linkedObjects = (state.data.objects || []).filter(o => o.clientId === id);
+  if (linkedObjects.length) {
+    state.modal = { type: "blockedDelete",
+      title: "Неможливо видалити замовника",
+      message: `Неможливо видалити замовника — він прив'язаний до об'єкта(ів): ${linkedObjects.map(o => `«${o.name}»`).join(", ")}. Спершу від'єднайте або видаліть ці об'єкти.`,
+    };
+    render();
+    return;
+  }
   state.data.clients = (state.data.clients || []).filter(c => c.id !== id);
   if (state.selectedClientId === id) state.selectedClientId = null;
   saveData(); render();
@@ -1999,6 +2027,16 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="danger-btn" onclick="deleteAdvance('${a.id}')">Видалити</button>
+    </div>`;
+  }
+  if (t === "blockedDelete") {
+    body = `
+    <h3>${esc(state.modal.title || "Видалення неможливе")}</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+      ${esc(state.modal.message || "")}
+    </p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Зрозуміло</button>
     </div>`;
   }
   if (t === "material") {
