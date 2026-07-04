@@ -2058,6 +2058,7 @@ function renderModal() {
         <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
         <button class="amber-btn" onclick="saveMaterialsReport()">Зберегти</button>
       ` : `
+        <button class="ghost-btn" onclick="closeModal()">Закрити</button>
         <button class="ghost-btn" onclick="openModal('materialReportsHistory')">← Історія</button>
         <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
       `}
@@ -2269,7 +2270,7 @@ function renderModal() {
       <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
     </div>`;
   }
-  return `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${body}</div></div>`;
+  return `<div class="modal-backdrop"><div class="modal">${body}</div></div>`;
 }
 
 function val(id) { return document.getElementById(id)?.value.trim() || ""; }
