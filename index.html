@@ -73,9 +73,11 @@ input, select { font-family: inherit; }
 @media (max-width: 859px) { .cols { grid-template-columns: 1fr; } }
 
 /* ---------- Price: category / items split layout ---------- */
+/* Own breakpoint (600px), intentionally lower than the app-wide nav breakpoint
+   (859px, .cols/sidebar/bottombar) so the two-column view survives portrait iPad. */
 .price-layout { display: flex; gap: 20px; align-items: flex-start; }
 .price-cat-pane {
-  width: 26%; min-width: 200px; max-width: 280px; flex-shrink: 0;
+  width: 240px; flex-shrink: 0;
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px;
 }
 .price-cat-list { display: flex; flex-direction: column; gap: 2px; max-height: 560px; overflow-y: auto; margin-bottom: 12px; }
@@ -88,9 +90,9 @@ input, select { font-family: inherit; }
 .price-cat-name { flex: 1; font-weight: 700; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .price-cat-count { font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
 .price-items-pane { flex: 1; min-width: 0; }
-@media (max-width: 859px) {
+@media (max-width: 599px) {
   .price-layout { flex-direction: column; gap: 14px; }
-  .price-cat-pane { width: 100%; max-width: none; padding: 12px; }
+  .price-cat-pane { width: 100%; padding: 12px; }
   .price-cat-list {
     flex-direction: row; max-height: none; overflow-x: auto; overflow-y: visible; gap: 8px; margin-bottom: 0;
   }
