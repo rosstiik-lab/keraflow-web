@@ -307,6 +307,60 @@ input, select { font-family: inherit; }
 .placeholder .big { font-size: 40px; margin-bottom: 12px; }
 .placeholder .t { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
 
+/* ---------- Notes (Нотатки, у стилі Apple Notes) ---------- */
+.notes-app {
+  display: flex; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  height: min(70vh, 640px); min-height: 420px; background: var(--bg);
+}
+.notes-list-pane {
+  width: 280px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--panel-2);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.notes-list-head { display: flex; gap: 8px; align-items: flex-start; padding: 14px 14px 0; }
+.notes-list-head .search-wrap { margin-bottom: 0; flex: 1; }
+.notes-new-btn {
+  width: 38px; height: 38px; border-radius: 10px; background: var(--amber); color: #1A1300;
+  border: none; font-weight: 800; font-size: 18px; flex-shrink: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.notes-list-scroll { flex: 1; overflow-y: auto; padding: 10px 10px 14px; }
+.notes-row { padding: 10px 10px; border-radius: 10px; cursor: pointer; margin-bottom: 2px; }
+.notes-row:hover { background: rgba(255,255,255,0.04); }
+.notes-row.selected { background: var(--amber-soft); }
+.notes-row-title {
+  font-weight: 700; font-size: 13.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.notes-row-preview {
+  font-size: 12px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.notes-row-date { font-size: 10.5px; color: var(--muted); margin-top: 5px; }
+.notes-editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.notes-editor-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--line); gap: 10px; flex-shrink: 0;
+}
+.notes-editor-meta { font-size: 11px; color: var(--muted); flex: 1; text-align: center; }
+.notes-back-btn { display: none; flex-shrink: 0; }
+.notes-editor-textarea {
+  flex: 1; border: none; background: transparent; color: var(--text); font-size: 14.5px;
+  font-family: inherit; padding: 18px 20px; resize: none; line-height: 1.6; min-height: 0;
+}
+.notes-editor-textarea:focus { outline: none; }
+.notes-editor-textarea::placeholder { color: var(--muted); }
+@media (max-width: 859px) {
+  .notes-app { flex-direction: column; height: auto; min-height: 0; border: none; border-radius: 0; background: none; }
+  .notes-list-pane { width: 100%; border-right: none; border: 1px solid var(--line); border-radius: 14px; }
+  .notes-editor-pane { display: none; }
+  .notes-app.notes-editor-open .notes-list-pane { display: none; }
+  .notes-app.notes-editor-open .notes-editor-pane {
+    display: flex; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2);
+    min-height: 60vh;
+  }
+  .notes-back-btn { display: inline-flex; }
+}
+
 /* ---------- Act document (справжній офісний документ, світла тема) ---------- */
 .act-doc {
   background: #fdfcf9; color: #1a1a1a; border: 1px solid #ddd; border-radius: 8px; padding: 16px;
@@ -471,9 +525,8 @@ let state = {
   priceSearch: "",
   openActionMenuId: null,
   expandedReportIds: {},
-  noteDraft: "",
-  editingNoteId: null,
-  editingNoteDraft: "",
+  notesQuery: "",
+  selectedNoteId: null,
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
 };
@@ -623,14 +676,23 @@ function objectDebtTotal(obj) {
 
 /* ---------- Actions ---------- */
 function setNav(key) {
-  state.nav = key; state.selectedRoomId = null; state.selectedZoneId = null;
+  flushNoteAutosave();
+  state.nav = key; state.selectedRoomId = null; state.selectedZoneId = null; state.selectedNoteId = null;
   if (key === "objects") state.selectedObjId = null;
   render();
 }
-function selectObject(id) { state.selectedObjId = id; state.selectedRoomId = null; state.selectedZoneId = null; render(); }
+function selectObject(id) {
+  flushNoteAutosave();
+  state.selectedObjId = id; state.selectedRoomId = null; state.selectedZoneId = null; state.selectedNoteId = null;
+  render();
+}
 function selectRoom(id) { state.selectedRoomId = id; render(); }
 function selectZone(id) { state.selectedZoneId = id; render(); }
-function setQuick(q) { state.quick = q; state.selectedZoneId = null; render(); }
+function setQuick(q) {
+  flushNoteAutosave();
+  state.quick = q; state.selectedZoneId = null;
+  render();
+}
 function selectClient(id) { state.selectedClientId = id; render(); }
 function openModal(type, id) { state.modal = { type, id: id || null }; render(); }
 function closeModal() { state.modal = null; render(); }
@@ -956,43 +1018,92 @@ function viewAct(id) {
   render();
 }
 
-/* ---------- Notes (Нотатки) ---------- */
-function setNoteDraft(v) { state.noteDraft = v; render(); }
-function addNote() {
-  const o = getObj(); if (!o) return;
-  const text = (state.noteDraft||"").trim(); if (!text) return;
-  o.notes = o.notes || [];
-  o.notes.push({ id: uid("note"), text, createdAt: Date.now(), updatedAt: Date.now() });
-  o.updatedAt = Date.now();
-  state.noteDraft = "";
-  saveData(); render();
+/* ---------- Notes (Нотатки, у стилі Apple Notes) ---------- */
+let noteAutosaveTimer = null;
+let noteAutosaveNoteId = null;
+let noteAutosaveText = null;
+
+function scheduleNoteAutosave(id, text) {
+  noteAutosaveNoteId = id;
+  noteAutosaveText = text;
+  clearTimeout(noteAutosaveTimer);
+  noteAutosaveTimer = setTimeout(flushNoteAutosave, 500);
 }
-function startEditNote(id) {
-  const o = getObj(); if (!o) return;
-  const n = (o.notes||[]).find(n => n.id === id); if (!n) return;
-  state.editingNoteId = id;
-  state.editingNoteDraft = n.text;
-  render();
-}
-function setEditingNoteDraft(v) { state.editingNoteDraft = v; render(); }
-function cancelEditNote() {
-  state.editingNoteId = null; state.editingNoteDraft = "";
-  render();
-}
-function saveEditNote(id) {
+function flushNoteAutosave() {
+  clearTimeout(noteAutosaveTimer);
+  noteAutosaveTimer = null;
+  if (noteAutosaveNoteId == null) return;
+  const id = noteAutosaveNoteId, text = noteAutosaveText;
+  noteAutosaveNoteId = null; noteAutosaveText = null;
   const o = getObj(); if (!o) return;
   const n = (o.notes||[]).find(n => n.id === id); if (!n) return;
-  const text = (state.editingNoteDraft||"").trim(); if (!text) return;
+  if (n.text === text) return;
   n.text = text; n.updatedAt = Date.now();
   o.updatedAt = Date.now();
-  state.editingNoteId = null; state.editingNoteDraft = "";
   saveData(); render();
+}
+function onNoteEditorInput(value) {
+  if (!state.selectedNoteId) return;
+  scheduleNoteAutosave(state.selectedNoteId, value);
+}
+function focusNoteTextarea() {
+  const el = document.getElementById("note-editor-textarea");
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+function purgeEmptyNotes(obj) {
+  const before = (obj.notes||[]).length;
+  obj.notes = (obj.notes||[]).filter(n => n.text.trim() !== "" || n.id === state.selectedNoteId);
+  if (obj.notes.length !== before) saveData();
+}
+function noteTitleAndPreview(text) {
+  const t = (text||"").trim();
+  if (!t) return { title: "Нова нотатка", preview: "" };
+  const nl = t.indexOf("\n");
+  const title = nl === -1 ? t : t.slice(0, nl).trim();
+  const preview = nl === -1 ? "" : t.slice(nl+1).trim();
+  return { title: title || "Нова нотатка", preview };
+}
+function fmtNoteListDate(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const startOfDay = dt => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+  if (diffDays === 0) return d.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
+  if (diffDays > 0 && diffDays < 7) {
+    const wd = d.toLocaleDateString("uk-UA", { weekday: "long" });
+    return wd.charAt(0).toUpperCase() + wd.slice(1);
+  }
+  return d.toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+function setNotesQuery(q) { state.notesQuery = q; render(); }
+function createNewNote() {
+  const o = getObj(); if (!o) return;
+  flushNoteAutosave();
+  o.notes = o.notes || [];
+  const n = { id: uid("note"), text: "", createdAt: Date.now(), updatedAt: Date.now() };
+  o.notes.push(n);
+  o.updatedAt = Date.now();
+  state.selectedNoteId = n.id;
+  saveData(); render();
+  focusNoteTextarea();
+}
+function selectNote(id) {
+  flushNoteAutosave();
+  state.selectedNoteId = id;
+  render();
+  focusNoteTextarea();
+}
+function closeNoteEditorMobile() {
+  flushNoteAutosave();
+  state.selectedNoteId = null;
+  render();
 }
 function deleteNote(id) {
   const o = getObj(); if (!o) return;
   o.notes = (o.notes||[]).filter(n => n.id !== id);
+  if (state.selectedNoteId === id) state.selectedNoteId = null;
   o.updatedAt = Date.now();
-  saveData(); render();
+  saveData(); closeModal();
 }
 
 /* ---------- Price list ---------- */
@@ -1539,39 +1650,58 @@ function actRowHtml(act) {
 }
 
 function renderNotesTab(obj) {
-  const notes = (obj.notes || []).slice().sort((a,b) => b.createdAt - a.createdAt);
+  purgeEmptyNotes(obj);
+  const query = (state.notesQuery||"").trim().toLowerCase();
+  const allNotes = (obj.notes||[]).slice().sort((a,b) => b.updatedAt - a.updatedAt);
+  const notes = query ? allNotes.filter(n => n.text.toLowerCase().includes(query)) : allNotes;
+  const selected = state.selectedNoteId ? (obj.notes||[]).find(n => n.id === state.selectedNoteId) : null;
   return `
-    <div class="section-head">
-      <div><div class="eyebrow">Нотатки</div><div class="section-title">Нотатки об'єкта</div></div>
+    <div class="notes-app ${selected ? "notes-editor-open" : ""}">
+      <div class="notes-list-pane">
+        <div class="notes-list-head">
+          <div class="search-wrap">
+            <span class="search-ico">${svgIcon("search", 14)}</span>
+            <input type="text" placeholder="Пошук нотаток…" value="${esc(state.notesQuery||"")}" oninput="setNotesQuery(this.value)">
+          </div>
+          <button class="notes-new-btn" title="Нова нотатка" onclick="createNewNote()">+</button>
+        </div>
+        <div class="notes-list-scroll">
+          ${notes.length ? notes.map(noteListRowHtml).join("") : `<div class="empty-slot">${query ? "Нічого не знайдено." : "Ще немає нотаток."}</div>`}
+        </div>
+      </div>
+      <div class="notes-editor-pane">
+        ${selected ? noteEditorHtml(selected) : `
+          <div class="placeholder" style="margin:auto;">
+            <div class="big">📝</div>
+            <div class="t">Оберіть нотатку</div>
+            Або створіть нову.
+          </div>
+        `}
+      </div>
     </div>
-    <div class="field">
-      <textarea id="note-draft-input" placeholder="Написати нотатку…" rows="3" oninput="setNoteDraft(this.value)">${esc(state.noteDraft||"")}</textarea>
-    </div>
-    <button class="amber-btn" style="margin-bottom:14px;" onclick="addNote()">Додати</button>
-    ${notes.length ? notes.map(noteRowHtml).join("") : `<div class="empty-slot">Ще немає нотаток.</div>`}
   `;
 }
-function noteRowHtml(n) {
-  if (state.editingNoteId === n.id) {
-    return `<div class="work-row" style="flex-direction:column;align-items:stretch;">
-      <textarea id="note-edit-input" rows="3" oninput="setEditingNoteDraft(this.value)" style="width:100%;box-sizing:border-box;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;resize:vertical;">${esc(state.editingNoteDraft||"")}</textarea>
-      <div class="modal-actions" style="margin-top:10px;">
-        <button class="ghost-btn" onclick="cancelEditNote()">Скасувати</button>
-        <button class="amber-btn" onclick="saveEditNote('${n.id}')">Зберегти</button>
-      </div>
-    </div>`;
-  }
-  return `<div class="work-row" style="align-items:flex-start;">
-    <div style="flex:1">
-      <div class="w-name" style="white-space:pre-wrap;">${esc(n.text)}</div>
-      <div class="w-meta">
-        <span class="mono">${esc(fmtDateTime(n.createdAt))}</span>
-        ${n.updatedAt && n.updatedAt !== n.createdAt ? `<span class="mono">змінено ${esc(fmtDateTime(n.updatedAt))}</span>` : ""}
-      </div>
-    </div>
-    <button class="w-del" title="Редагувати" onclick="startEditNote('${n.id}')">✎</button>
-    <button class="w-del" title="Видалити" onclick="deleteNote('${n.id}')">✕</button>
+function noteListRowHtml(n) {
+  const { title, preview } = noteTitleAndPreview(n.text);
+  const sel = n.id === state.selectedNoteId;
+  return `<div class="notes-row ${sel?"selected":""}" onclick="selectNote('${n.id}')">
+    <div class="notes-row-title">${esc(title)}</div>
+    ${preview ? `<div class="notes-row-preview">${esc(preview)}</div>` : ""}
+    <div class="notes-row-date mono">${esc(fmtNoteListDate(n.updatedAt))}</div>
   </div>`;
+}
+function noteEditorHtml(n) {
+  const metaText = n.updatedAt && n.updatedAt !== n.createdAt
+    ? `Змінено ${fmtDateTime(n.updatedAt)}`
+    : `Створено ${fmtDateTime(n.createdAt)}`;
+  return `
+    <div class="notes-editor-head">
+      <button class="notes-back-btn ghost-btn" onclick="closeNoteEditorMobile()">← Нотатки</button>
+      <div class="notes-editor-meta mono">${esc(metaText)}</div>
+      <button class="w-del" title="Видалити" onclick="openModal('deleteNote','${n.id}')">🗑</button>
+    </div>
+    <textarea id="note-editor-textarea" class="notes-editor-textarea" placeholder="Написати нотатку…" oninput="onNoteEditorInput(this.value)">${esc(n.text)}</textarea>
+  `;
 }
 
 function renderCalc(obj) {
@@ -2028,6 +2158,22 @@ function renderModal() {
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="danger-btn" onclick="deleteAdvance('${a.id}')">Видалити</button>
     </div>`;
+  }
+  if (t === "deleteNote") {
+    const o = getObj();
+    const n = o ? (o.notes||[]).find(n => n.id === state.modal.id) : null;
+    if (n) {
+      const { title } = noteTitleAndPreview(n.text);
+      body = `
+      <h3>Видалити нотатку?</h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+        Видалити нотатку «${esc(title)}»? Це незворотна дія.
+      </p>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+        <button class="danger-btn" onclick="deleteNote('${n.id}')">Видалити</button>
+      </div>`;
+    }
   }
   if (t === "blockedDelete") {
     body = `
