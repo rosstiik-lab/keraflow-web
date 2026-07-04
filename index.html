@@ -286,6 +286,42 @@ input, select { font-family: inherit; }
 .mini-stat-val.green { color: var(--green); }
 .mini-stat-val.amber { color: var(--amber); }
 
+/* ---------- Timesheet (Табель) ---------- */
+.view-switch { display: flex; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin-bottom: 16px; }
+.view-switch-btn { flex: 1; text-align: center; padding: 9px 10px; border-radius: 9px; font-weight: 700; font-size: 13px; color: var(--muted); background: none; border: none; cursor: pointer; }
+.view-switch-btn.selected { background: var(--amber); color: #1A1300; }
+.ts-month-switch { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 18px; }
+.ts-month-arrow {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  width: 34px; height: 34px; border-radius: 10px; font-size: 16px; cursor: pointer;
+}
+.ts-month-arrow:hover { border-color: var(--amber); color: var(--amber); }
+.ts-month-label { font-weight: 800; font-size: 15px; min-width: 150px; text-align: center; }
+.ts-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+.ts-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+.ts-table th, .ts-table td { padding: 0; text-align: center; white-space: nowrap; }
+.ts-table thead th {
+  background: var(--panel); color: var(--muted); font-size: 11.5px; font-weight: 700;
+  padding: 8px 4px; border-bottom: 1px solid var(--line); min-width: 34px;
+}
+.ts-dow { display: block; font-size: 9px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+.ts-corner { position: sticky; left: 0; z-index: 3; background: var(--panel); min-width: 140px; }
+.ts-name-cell {
+  position: sticky; left: 0; z-index: 2; background: var(--panel-2); text-align: left;
+  padding: 10px 12px; font-weight: 700; font-size: 13px; border-right: 1px solid var(--line);
+}
+.ts-total-head { min-width: 56px; color: var(--amber); }
+.ts-weekend { background: rgba(255,255,255,0.04); }
+.ts-cell {
+  height: 40px; min-width: 34px; border-bottom: 1px solid var(--line); cursor: pointer;
+  font-weight: 800; font-size: 13px;
+}
+.ts-cell:hover { background: var(--amber-soft); }
+.ts-cell.ts-cell-locked { cursor: default; color: var(--amber); }
+.ts-cell.ts-cell-locked:hover { background: none; }
+.ts-today { box-shadow: inset 0 0 0 2px var(--amber); }
+.ts-total-cell { font-weight: 800; color: var(--amber); border-bottom: 1px solid var(--line); }
+
 /* ---------- Works ---------- */
 .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 700; font-size: 12.5px; cursor: pointer; margin-bottom: 14px; background: none; border: none; }
 .work-row {
@@ -594,6 +630,9 @@ let state = {
   notebookSearch: "",
   selectedWorkerId: null,
   workerSearch: "",
+  workerView: "list",
+  timesheetYear: new Date().getFullYear(),
+  timesheetMonth: new Date().getMonth(),
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
 };
@@ -1411,6 +1450,44 @@ function updateWorkerPayment(id, amount, date, note) {
 function deleteWorkerPayment(id) {
   state.data.workerPayments = (state.data.workerPayments||[]).filter(p => p.id !== id);
   saveData(); closeModal();
+}
+
+/* ---------- Timesheet (Табель) ---------- */
+const WEEKDAY_SHORT = ["Нд","Пн","Вт","Ср","Чт","Пт","Сб"];
+function setWorkerView(v) { state.workerView = v; render(); }
+function shiftTimesheetMonth(delta) {
+  let m = state.timesheetMonth + delta;
+  let y = state.timesheetYear;
+  if (m < 0) { m = 11; y--; }
+  if (m > 11) { m = 0; y++; }
+  state.timesheetMonth = m; state.timesheetYear = y;
+  render();
+}
+function pad2(n) { return String(n).padStart(2, "0"); }
+function ymd(y, m, d) { return `${y}-${pad2(m+1)}-${pad2(d)}`; }
+function daysInMonth(y, m) { return new Date(y, m+1, 0).getDate(); }
+function workerMonthTotal(workerId, y, m) {
+  const prefix = `${y}-${pad2(m+1)}-`;
+  return (state.data.workerEntries||[]).filter(e => e.workerId === workerId && (e.date||"").startsWith(prefix))
+    .reduce((s,e) => s + (Number(e.days)||0), 0);
+}
+function toggleTimesheetCell(workerId, dateStr) {
+  const entries = state.data.workerEntries = state.data.workerEntries || [];
+  const existing = entries.find(e => e.workerId === workerId && e.date === dateStr);
+  if (existing && existing.objectId) return;
+  if (!existing) {
+    entries.push({ id: uid("wentry"), workerId, objectId: null, date: dateStr, days: 1, note: "" });
+  } else if (existing.days === 0.5) {
+    state.data.workerEntries = entries.filter(e => e !== existing);
+  } else {
+    existing.days = 0.5;
+  }
+  saveData(); render();
+}
+function timesheetCellBlocked(workerId, dateStr) {
+  const entry = (state.data.workerEntries||[]).find(e => e.workerId === workerId && e.date === dateStr);
+  const obj = entry && entry.objectId ? (state.data.objects||[]).find(o => o.id === entry.objectId) : null;
+  alert(`Запис прив'язаний до об'єкта ${obj ? obj.name : "—"} — редагуйте його в картці працівника.`);
 }
 
 /* ---------- Clients ---------- */
@@ -2427,6 +2504,73 @@ function clientPriceOverrideRowHtml(c, p) {
 }
 
 function renderWorkers() {
+  return `
+    <div class="view-switch">
+      <button class="view-switch-btn ${state.workerView!=="timesheet"?"selected":""}" onclick="setWorkerView('list')">Список</button>
+      <button class="view-switch-btn ${state.workerView==="timesheet"?"selected":""}" onclick="setWorkerView('timesheet')">Табель</button>
+    </div>
+    ${state.workerView === "timesheet" ? renderWorkersTimesheet() : renderWorkersList()}
+  `;
+}
+function renderWorkersTimesheet() {
+  const workers = (state.data.workers || []).slice().sort((a,b) => a.name.localeCompare(b.name, "uk"));
+  const y = state.timesheetYear, m = state.timesheetMonth;
+  const dim = daysInMonth(y, m);
+  const days = Array.from({length: dim}, (_, i) => i+1);
+  const now = new Date();
+  const monthLabel = new Date(y, m, 1).toLocaleDateString("uk-UA", { month: "long", year: "numeric" });
+  const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
+  return `<div class="panel">
+    <div class="panel-head">
+      <div><div class="eyebrow">Команда</div><div class="h1">Табель</div></div>
+      <div class="count-badge">${workers.length}</div>
+    </div>
+    <div class="ts-month-switch">
+      <button class="ts-month-arrow" onclick="shiftTimesheetMonth(-1)">‹</button>
+      <div class="ts-month-label">${monthLabelCap}</div>
+      <button class="ts-month-arrow" onclick="shiftTimesheetMonth(1)">›</button>
+    </div>
+    ${workers.length ? `<div class="ts-wrap">
+      <table class="ts-table">
+        <thead><tr>
+          <th class="ts-corner"></th>
+          ${days.map(d => {
+            const dow = new Date(y,m,d).getDay();
+            const isWeekend = dow===0||dow===6;
+            const isToday = y===now.getFullYear() && m===now.getMonth() && d===now.getDate();
+            return `<th class="${isWeekend?"ts-weekend":""} ${isToday?"ts-today":""}">${d}<span class="ts-dow">${WEEKDAY_SHORT[dow]}</span></th>`;
+          }).join("")}
+          <th class="ts-total-head">Разом</th>
+        </tr></thead>
+        <tbody>${workers.map(w => timesheetRowHtml(w, y, m, days, now)).join("")}</tbody>
+      </table>
+    </div>` : `<div class="empty-slot">Ще немає жодного працівника.</div>`}
+  </div>`;
+}
+function timesheetRowHtml(w, y, m, days, now) {
+  const total = workerMonthTotal(w.id, y, m);
+  return `<tr>
+    <td class="ts-name-cell">${esc(w.name)}</td>
+    ${days.map(d => timesheetCellHtml(w, y, m, d, now)).join("")}
+    <td class="ts-total-cell mono">${total % 1 === 0 ? total : total.toFixed(1)}</td>
+  </tr>`;
+}
+function timesheetCellHtml(w, y, m, d, now) {
+  const dateStr = ymd(y, m, d);
+  const dow = new Date(y, m, d).getDay();
+  const isWeekend = dow === 0 || dow === 6;
+  const isToday = y === now.getFullYear() && m === now.getMonth() && d === now.getDate();
+  const entry = (state.data.workerEntries||[]).find(e => e.workerId === w.id && e.date === dateStr);
+  const locked = !!(entry && entry.objectId);
+  const label = entry ? (entry.days === 1 ? "1" : entry.days === 0.5 ? "½" : String(entry.days)) : "";
+  const cls = ["ts-cell"];
+  if (isWeekend) cls.push("ts-weekend");
+  if (isToday) cls.push("ts-today");
+  if (locked) cls.push("ts-cell-locked");
+  const handler = locked ? `timesheetCellBlocked('${w.id}','${dateStr}')` : `toggleTimesheetCell('${w.id}','${dateStr}')`;
+  return `<td class="${cls.join(" ")}" onclick="${handler}">${label}</td>`;
+}
+function renderWorkersList() {
   const workers = (state.data.workers || []).slice();
   const q = (state.workerSearch || "").trim().toLowerCase();
   const filtered = q ? workers.filter(w => w.name.toLowerCase().includes(q) || (w.role||"").toLowerCase().includes(q)) : workers;
