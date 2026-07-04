@@ -329,6 +329,10 @@ input, select { font-family: inherit; }
 }
 .modal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .modal-actions button { flex: 1; justify-content: center; }
+.inline-num-input {
+  width: 90px; flex-shrink: 0; box-sizing: border-box; padding: 9px 10px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit;
+}
 
 /* ---------- Placeholder pages ---------- */
 .placeholder { text-align: center; padding: 60px 20px; color: var(--muted); }
@@ -628,6 +632,11 @@ function migrateData(data) {
     if (p.unit && !data.priceUnits.includes(p.unit)) data.priceUnits.push(p.unit);
   });
   data.collapsedGroups = data.collapsedGroups || {};
+  data.clients = data.clients || [];
+  data.clients.forEach(c => {
+    if (c.priceOverrides === undefined) c.priceOverrides = [];
+    if (c.quotes === undefined) c.quotes = [];
+  });
   return data;
 }
 function loadData() {
@@ -853,6 +862,12 @@ function updateWork(id, fields) {
 function linkedPriceItem(work) {
   if (!work.priceItemId) return null;
   return (state.data.priceItems || []).find(p => p.id === work.priceItemId) || null;
+}
+function resolveClientPrice(clientId, priceItemId, basePrice) {
+  if (!clientId) return basePrice;
+  const c = getClient(clientId); if (!c) return basePrice;
+  const ov = (c.priceOverrides||[]).find(o => o.priceItemId === priceItemId);
+  return ov ? ov.price : basePrice;
 }
 function setWorkSearchQuery(q) {
   if (!state.modal) return;
@@ -1232,7 +1247,7 @@ function deletePriceUnit(unit) {
 /* ---------- Clients ---------- */
 function createClient(name, phone, address, note) {
   state.data.clients = state.data.clients || [];
-  state.data.clients.push({ id: uid("client"), name, phone, address, note });
+  state.data.clients.push({ id: uid("client"), name, phone, address, note, priceOverrides: [], quotes: [] });
   saveData(); closeModal();
 }
 function updateClient(id, name, phone, address, note) {
@@ -1253,6 +1268,110 @@ function deleteClient(id) {
   state.data.clients = (state.data.clients || []).filter(c => c.id !== id);
   if (state.selectedClientId === id) state.selectedClientId = null;
   saveData(); render();
+}
+
+/* ---------- Client individual prices ---------- */
+function setClientPriceOverride(clientId, priceItemId, value) {
+  const c = getClient(clientId); if (!c) return;
+  c.priceOverrides = c.priceOverrides || [];
+  const v = value === "" ? null : Number(value);
+  const idx = c.priceOverrides.findIndex(o => o.priceItemId === priceItemId);
+  if (v === null || isNaN(v) || v < 0) {
+    if (idx !== -1) c.priceOverrides.splice(idx, 1);
+  } else if (idx !== -1) {
+    c.priceOverrides[idx].price = v;
+  } else {
+    c.priceOverrides.push({ priceItemId, price: v });
+  }
+  saveData(); render();
+}
+
+/* ---------- Client quotes (Комерційна пропозиція) ---------- */
+function openQuoteBuilder() {
+  state.modal = { type: "quoteBuilder", items: [], pqQuery: "", pqOpen: false };
+  render();
+}
+function setQuoteSearchQuery(q) {
+  if (!state.modal) return;
+  state.modal.pqQuery = q; state.modal.pqOpen = true;
+  render();
+}
+function openQuoteSearchDropdown() {
+  if (!state.modal || state.modal.pqOpen) return;
+  state.modal.pqOpen = true; render();
+}
+function addQuoteItem(priceItemId) {
+  if (!state.modal) return;
+  const p = (state.data.priceItems||[]).find(p => p.id === priceItemId); if (!p) return;
+  if (state.modal.items.some(it => it.priceItemId === priceItemId)) {
+    state.modal.pqQuery = ""; state.modal.pqOpen = false;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    render(); return;
+  }
+  const price = resolveClientPrice(state.selectedClientId, priceItemId, p.price);
+  state.modal.items.push({ priceItemId, name: p.name, unit: p.unit, price, qty: 1 });
+  state.modal.pqQuery = ""; state.modal.pqOpen = false;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  render();
+}
+function setQuoteItemQty(priceItemId, qty) {
+  if (!state.modal) return;
+  const it = (state.modal.items||[]).find(it => it.priceItemId === priceItemId); if (!it) return;
+  it.qty = Number(qty) || 0;
+  render();
+}
+function setQuoteItemPrice(priceItemId, price) {
+  if (!state.modal) return;
+  const it = (state.modal.items||[]).find(it => it.priceItemId === priceItemId); if (!it) return;
+  it.price = Number(price) || 0;
+  render();
+}
+function removeQuoteItem(priceItemId) {
+  if (!state.modal) return;
+  state.modal.items = (state.modal.items||[]).filter(it => it.priceItemId !== priceItemId);
+  render();
+}
+function goToQuotePreview() {
+  if (!state.modal || !(state.modal.items||[]).length) return;
+  state.modal.type = "quotePreview";
+  render();
+}
+function backToQuoteBuilder() {
+  if (!state.modal) return;
+  state.modal.type = "quoteBuilder";
+  render();
+}
+function saveQuote() {
+  const c = getClient(state.selectedClientId); if (!c) return;
+  const items = (state.modal.items||[]).filter(it => it.qty > 0);
+  if (!items.length) return;
+  c.quotes = c.quotes || [];
+  const number = c.quotes.length + 1;
+  const totalSum = items.reduce((s,it) => s + it.qty*it.price, 0);
+  const quote = {
+    id: uid("quote"), number, createdAt: Date.now(),
+    items: items.map(it => ({ priceItemId: it.priceItemId, name: it.name, unit: it.unit, qty: it.qty, price: it.price })),
+    totalSum,
+  };
+  c.quotes.push(quote);
+  saveData();
+  state.modal = { type: "quoteView", id: quote.id };
+  render();
+}
+function viewQuote(id) {
+  state.modal = { type: "quoteView", id };
+  render();
+}
+function shareQuote(quoteId) {
+  const c = getClient(state.selectedClientId); if (!c) return;
+  const q = (c.quotes||[]).find(q => q.id === quoteId); if (!q) return;
+  const lines = q.items.map(it => `• ${it.name} — ${it.qty} ${it.unit} × ${fmtActEUR(it.price)} = ${fmtActEUR(it.qty*it.price)}`);
+  const text = `Комерційна пропозиція №${q.number} для ${c.name}\n${lines.join("\n")}\n\nВсього: ${fmtActEUR(q.totalSum)}`;
+  if (navigator.share) {
+    navigator.share({ title: `Комерційна пропозиція №${q.number}`, text, url: location.href }).catch(() => {});
+  } else {
+    alert("Використайте кнопку «Друк», щоб зберегти як PDF і надіслати.");
+  }
 }
 
 /* ---------- Render ---------- */
@@ -1990,10 +2109,14 @@ function renderClientDetail() {
         ${c.address ? `<div class="banner-addr">📍 ${esc(c.address)}</div>` : ""}
         ${c.note ? `<div class="banner-addr">📝 ${esc(c.note)}</div>` : ""}
       </div>
-      <div style="display:flex;gap:10px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="ghost-btn" onclick="openModal('client','${c.id}')">Редагувати</button>
         <button class="ghost-btn" onclick="deleteClient('${c.id}')">Видалити</button>
       </div>
+    </div>
+    <div class="btn-row" style="margin:14px 0;">
+      <button class="ghost-btn" onclick="openQuoteBuilder()">Сформувати пропозицію</button>
+      <button class="ghost-btn" onclick="openModal('quotesHistory')">Історія пропозицій</button>
     </div>
     <div class="section-card">
       <div class="section-head">
@@ -2002,7 +2125,35 @@ function renderClientDetail() {
       </div>
       ${objs.map(o => objRowHtml(o)).join("") || `<div class="empty-slot">У цього замовника ще немає об'єктів.</div>`}
     </div>
+    ${renderClientPriceOverridesSection(c)}
   `;
+}
+
+function renderClientPriceOverridesSection(c) {
+  const priceItems = state.data.priceItems || [];
+  const categories = [...new Set(priceItems.map(p => p.category || "Без категорії"))].sort((a,b) => a.localeCompare(b, "uk"));
+  return `
+    <div class="section-card">
+      <div class="section-head">
+        <div><div class="eyebrow">Прайс</div><div class="section-title">Індивідуальні ціни</div></div>
+      </div>
+      ${priceItems.length ? categories.map(cat => `
+        <div class="group-label">${esc(cat)}</div>
+        ${priceItems.filter(p => (p.category||"Без категорії") === cat).map(p => clientPriceOverrideRowHtml(c, p)).join("")}
+      `).join("") : `<div class="empty-slot">У прайсі поки немає жодної позиції.</div>`}
+    </div>
+  `;
+}
+function clientPriceOverrideRowHtml(c, p) {
+  const override = (c.priceOverrides||[]).find(o => o.priceItemId === p.id);
+  return `<div class="work-row">
+    <div style="flex:1">
+      <div class="w-name">${esc(p.name)}${override ? ` <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : ""}</div>
+      <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">база: ${p.price} €/${esc(p.unit)}</span></div>
+    </div>
+    <input type="number" inputmode="decimal" class="inline-num-input" placeholder="База" value="${override ? override.price : ""}"
+      onchange="setClientPriceOverride('${c.id}','${p.id}', this.value)">
+  </div>`;
 }
 
 function renderSettings() {
@@ -2121,6 +2272,8 @@ function renderModal() {
         const query = state.modal.pqQuery !== undefined ? state.modal.pqQuery : "";
         const dropdownOpen = !!state.modal.pqOpen;
         const matches = priceItems.filter(p => priceMatchesSearch(p, query));
+        const roomObj = getObj();
+        const priceForField = selPriceItem ? resolveClientPrice(roomObj ? roomObj.clientId : null, selPriceItem.id, selPriceItem.price) : 0;
         body = `
         <h3>Нова робота</h3>
         <div class="field" style="position:relative;">
@@ -2146,7 +2299,7 @@ function renderModal() {
           </div>
           <div style="display:flex;gap:10px;">
             <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
-            <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${selPriceItem.price}"></div>
+            <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${priceForField}"></div>
           </div>
           <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2"></textarea></div>
         ` : `<div class="empty-slot">Оберіть позицію з прайсу вище.</div>`}
@@ -2650,6 +2803,147 @@ function renderModal() {
       <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
     </div>`;
   }
+  if (t === "quoteBuilder") {
+    const items = state.modal.items || [];
+    const query = state.modal.pqQuery || "";
+    const dropdownOpen = !!state.modal.pqOpen;
+    const priceItems = state.data.priceItems || [];
+    const matches = priceItems.filter(p => priceMatchesSearch(p, query) && !items.some(it => it.priceItemId === p.id));
+    const total = items.reduce((s,it) => s + it.qty*it.price, 0);
+    body = `
+    <h3>Сформувати пропозицію</h3>
+    <div class="field" style="position:relative;">
+      <label>Додати позицію з прайсу</label>
+      <input id="m-quotesearch" placeholder="Почніть вводити назву роботи…" autocomplete="off"
+        value="${esc(query)}"
+        oninput="setQuoteSearchQuery(this.value)"
+        onfocus="openQuoteSearchDropdown()">
+      ${dropdownOpen ? `
+      <div class="combo-dropdown">
+        ${matches.length ? matches.map(p => `
+          <div class="combo-item" onmousedown="event.preventDefault(); addQuoteItem('${p.id}')">
+            <div class="combo-item-name">${esc(p.name)}</div>
+            <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${resolveClientPrice(state.selectedClientId, p.id, p.price)} €/${esc(p.unit)}</span></div>
+          </div>
+        `).join("") : `<div class="combo-empty">Нічого не знайдено. Перевірте прайс.</div>`}
+      </div>` : ""}
+    </div>
+    ${items.length ? items.map(it => `
+      <div class="work-row">
+        <div style="flex:1">
+          <div class="w-name">${esc(it.name)}</div>
+          <div class="w-meta"><span class="mono">${esc(it.unit)}</span></div>
+        </div>
+        <input type="number" inputmode="decimal" class="inline-num-input" style="width:64px;" value="${it.qty}" placeholder="К-сть" onchange="setQuoteItemQty('${it.priceItemId}', this.value)">
+        <input type="number" inputmode="decimal" class="inline-num-input" value="${it.price}" placeholder="Ціна" onchange="setQuoteItemPrice('${it.priceItemId}', this.value)">
+        <button class="w-del" title="Видалити" onclick="removeQuoteItem('${it.priceItemId}')">✕</button>
+      </div>
+    `).join("") : `<div class="empty-slot">Додайте позиції з прайсу вище.</div>`}
+    <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
+      <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val amber mono">${fmtEUR(total)}</div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn" onclick="goToQuotePreview()" ${items.length ? "" : "disabled"}>Далі</button>
+    </div>`;
+  }
+  if (t === "quotePreview") {
+    const c = getClient(state.selectedClientId);
+    const items = state.modal.items || [];
+    const total = items.reduce((s,it) => s + it.qty*it.price, 0);
+    const nextNumber = c ? (c.quotes||[]).length + 1 : 1;
+    body = `
+    <h3>Комерційна пропозиція №${nextNumber}</h3>
+    <div class="print-report">
+      ${c ? `<div style="margin-bottom:12px;">
+        <div style="font-weight:800;font-size:15px;">${esc(c.name)}</div>
+        <div style="color:var(--amber);font-size:11.5px;margin-top:2px;font-weight:700;">Попередній перегляд — ще не збережено</div>
+      </div>` : ""}
+      ${items.map(it => `
+        <div class="work-row">
+          <div style="flex:1">
+            <div class="w-name">${esc(it.name)}</div>
+            <div class="w-meta"><span class="mono">${it.qty} ${esc(it.unit)}</span><span class="mono">${it.price} €/${esc(it.unit)}</span></div>
+          </div>
+          <div class="mono" style="font-weight:800;">${fmtEUR(it.qty*it.price)}</div>
+        </div>
+      `).join("")}
+      <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
+        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="ghost-btn" onclick="backToQuoteBuilder()">Назад</button>
+      <button class="amber-btn" onclick="saveQuote()">Зберегти</button>
+    </div>`;
+  }
+  if (t === "quoteView") {
+    const c = getClient(state.selectedClientId);
+    const quote = c ? (c.quotes||[]).find(q => q.id === state.modal.id) : null;
+    body = `
+    <h3>Комерційна пропозиція №${quote?quote.number:""}</h3>
+    <div class="print-report act-doc">
+      ${c ? `
+      <div class="act-doc-head">
+        <div class="act-doc-title">Комерційна пропозиція №${quote?quote.number:""}</div>
+        <div class="act-doc-sub">${esc(c.name)}</div>
+        <div class="act-doc-sub">Дата формування: ${quote?esc(fmtDateTime(quote.createdAt)):""}</div>
+      </div>` : ""}
+      ${quote && quote.items.length ? `
+      <div class="act-table-wrap">
+        <table class="act-table">
+          <thead>
+            <tr>
+              <th>№</th><th>Найменування</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна, EUR</th><th class="num">Всього, EUR</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${quote.items.map((it,idx) => `
+              <tr>
+                <td>${idx+1}</td>
+                <td>${esc(it.name)}</td>
+                <td class="num">${it.qty}</td>
+                <td>${esc(it.unit)}</td>
+                <td class="num">${fmtActEUR(it.price)}</td>
+                <td class="num">${fmtActEUR(it.qty*it.price)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      ` : `<div class="empty-slot">Немає позицій.</div>`}
+      <div class="act-doc-summary">
+        <div class="act-total">Всього: ${fmtActEUR(quote?quote.totalSum:0)}</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+      <button class="ghost-btn" onclick="openModal('quotesHistory')">Історія</button>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="shareQuote('${quote?quote.id:""}')">📤 Поділитися</button>
+      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+    </div>`;
+  }
+  if (t === "quotesHistory") {
+    const c = getClient(state.selectedClientId);
+    const quotes = c ? (c.quotes||[]).slice().sort((a,b) => b.number-a.number) : [];
+    body = `
+    <h3>Історія пропозицій</h3>
+    ${quotes.length ? quotes.map(q => `
+      <div class="work-row" style="cursor:pointer;" onclick="viewQuote('${q.id}')">
+        <div style="flex:1">
+          <div class="w-name">Пропозиція №${q.number}</div>
+          <div class="w-meta"><span class="mono">${esc(fmtDateTime(q.createdAt))}</span></div>
+        </div>
+        <div class="mono" style="font-weight:800;">${fmtEUR(q.totalSum)}</div>
+      </div>
+    `).join("") : `<div class="empty-slot">Ще немає жодної сформованої пропозиції.</div>`}
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+    </div>`;
+  }
   return `<div class="modal-backdrop"><div class="modal">${body}</div></div>`;
 }
 
@@ -2729,7 +3023,7 @@ function submitClient(id) {
     const pending = state.modal.pending || {};
     const editingId = state.modal.editingId || null;
     state.data.clients = state.data.clients || [];
-    const newClient = { id: uid("client"), name: n, phone, address: addr, note };
+    const newClient = { id: uid("client"), name: n, phone, address: addr, note, priceOverrides: [], quotes: [] };
     state.data.clients.push(newClient);
     saveData();
     state.modal = { type: "object", id: editingId, pending: { ...pending, clientId: newClient.id } };
