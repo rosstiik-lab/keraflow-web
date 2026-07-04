@@ -400,7 +400,7 @@ const OBJ_STATUS = {
   done:    { label: "Завершено",  cls: "done" },
 };
 
-const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акти","Примітки"];
+const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акти","Нотатки"];
 
 const seedData = {
   priceCategories: ["Плитка", "Гідроізоляція", "Опорядження", "Підготовчі роботи", "Демонтаж"],
@@ -471,6 +471,9 @@ let state = {
   priceSearch: "",
   openActionMenuId: null,
   expandedReportIds: {},
+  noteDraft: "",
+  editingNoteId: null,
+  editingNoteDraft: "",
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
 };
@@ -523,6 +526,7 @@ function migrateData(data) {
     if (o.advances === undefined) o.advances = [];
     if (o.zones === undefined) o.zones = [];
     if (o.acts === undefined) o.acts = [];
+    if (o.notes === undefined) o.notes = [];
     (o.rooms || []).forEach(r => {
       (r.works || []).forEach(w => {
         if (w.priceItemId === undefined) w.priceItemId = null;
@@ -952,6 +956,45 @@ function viewAct(id) {
   render();
 }
 
+/* ---------- Notes (Нотатки) ---------- */
+function setNoteDraft(v) { state.noteDraft = v; render(); }
+function addNote() {
+  const o = getObj(); if (!o) return;
+  const text = (state.noteDraft||"").trim(); if (!text) return;
+  o.notes = o.notes || [];
+  o.notes.push({ id: uid("note"), text, createdAt: Date.now(), updatedAt: Date.now() });
+  o.updatedAt = Date.now();
+  state.noteDraft = "";
+  saveData(); render();
+}
+function startEditNote(id) {
+  const o = getObj(); if (!o) return;
+  const n = (o.notes||[]).find(n => n.id === id); if (!n) return;
+  state.editingNoteId = id;
+  state.editingNoteDraft = n.text;
+  render();
+}
+function setEditingNoteDraft(v) { state.editingNoteDraft = v; render(); }
+function cancelEditNote() {
+  state.editingNoteId = null; state.editingNoteDraft = "";
+  render();
+}
+function saveEditNote(id) {
+  const o = getObj(); if (!o) return;
+  const n = (o.notes||[]).find(n => n.id === id); if (!n) return;
+  const text = (state.editingNoteDraft||"").trim(); if (!text) return;
+  n.text = text; n.updatedAt = Date.now();
+  o.updatedAt = Date.now();
+  state.editingNoteId = null; state.editingNoteDraft = "";
+  saveData(); render();
+}
+function deleteNote(id) {
+  const o = getObj(); if (!o) return;
+  o.notes = (o.notes||[]).filter(n => n.id !== id);
+  o.updatedAt = Date.now();
+  saveData(); render();
+}
+
 /* ---------- Price list ---------- */
 function setPriceSearch(q) { state.priceSearch = q; render(); }
 function priceMatchesSearch(p, q) {
@@ -1204,6 +1247,7 @@ function renderQuickContent(obj) {
     case "Матеріал": return renderMaterialsTab(obj);
     case "Оплата":   return renderAdvancesTab(obj);
     case "Акти":     return renderActsTab(obj);
+    case "Нотатки":  return renderNotesTab(obj);
     default: return `<div class="empty-slot">Розділ «${esc(state.quick)}» ще не реалізовано.</div>`;
   }
 }
@@ -1463,6 +1507,42 @@ function actRowHtml(act) {
       <div class="w-meta"><span class="mono">${esc(fmtDateTime(act.createdAt))}</span><span class="mono">${act.entries.length} поз.</span></div>
     </div>
     <div class="mono" style="font-weight:800;">${fmtEUR(act.totalSum)}</div>
+  </div>`;
+}
+
+function renderNotesTab(obj) {
+  const notes = (obj.notes || []).slice().sort((a,b) => b.createdAt - a.createdAt);
+  return `
+    <div class="section-head">
+      <div><div class="eyebrow">Нотатки</div><div class="section-title">Нотатки об'єкта</div></div>
+    </div>
+    <div class="field">
+      <textarea id="note-draft-input" placeholder="Написати нотатку…" rows="3" oninput="setNoteDraft(this.value)">${esc(state.noteDraft||"")}</textarea>
+    </div>
+    <button class="amber-btn" style="margin-bottom:14px;" onclick="addNote()">Додати</button>
+    ${notes.length ? notes.map(noteRowHtml).join("") : `<div class="empty-slot">Ще немає нотаток.</div>`}
+  `;
+}
+function noteRowHtml(n) {
+  if (state.editingNoteId === n.id) {
+    return `<div class="work-row" style="flex-direction:column;align-items:stretch;">
+      <textarea id="note-edit-input" rows="3" oninput="setEditingNoteDraft(this.value)" style="width:100%;box-sizing:border-box;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;resize:vertical;">${esc(state.editingNoteDraft||"")}</textarea>
+      <div class="modal-actions" style="margin-top:10px;">
+        <button class="ghost-btn" onclick="cancelEditNote()">Скасувати</button>
+        <button class="amber-btn" onclick="saveEditNote('${n.id}')">Зберегти</button>
+      </div>
+    </div>`;
+  }
+  return `<div class="work-row" style="align-items:flex-start;">
+    <div style="flex:1">
+      <div class="w-name" style="white-space:pre-wrap;">${esc(n.text)}</div>
+      <div class="w-meta">
+        <span class="mono">${esc(fmtDateTime(n.createdAt))}</span>
+        ${n.updatedAt && n.updatedAt !== n.createdAt ? `<span class="mono">змінено ${esc(fmtDateTime(n.updatedAt))}</span>` : ""}
+      </div>
+    </div>
+    <button class="w-del" title="Редагувати" onclick="startEditNote('${n.id}')">✎</button>
+    <button class="w-del" title="Видалити" onclick="deleteNote('${n.id}')">✕</button>
   </div>`;
 }
 
