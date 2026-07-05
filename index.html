@@ -7,13 +7,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>KERAFLOW</title>
+<script>
+/* Застосувати тему до першого малювання — без "миготіння" темної теми */
+(function () {
+  try {
+    var raw = localStorage.getItem("keraflow-data");
+    var data = raw ? JSON.parse(raw) : null;
+    var theme = data && data.settings && data.settings.theme === "light" ? "light" : "dark";
+    document.documentElement.classList.toggle("theme-light", theme === "light");
+  } catch (e) {}
+})();
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap');
 * { box-sizing: border-box; margin: 0; }
 :root {
   --bg: #0A0D14; --panel: #11151F; --panel-2: #161B26; --line: #232838;
-  --amber: #F5B93D; --amber-soft: rgba(245,185,61,0.14);
+  --amber: #F5B93D; --amber-soft: rgba(245,185,61,0.14); --amber-border: rgba(245,185,61,0.4);
   --text: #F2F3F6; --muted: #8B93A3; --green: #3DD68C; --blue: #4C8DFF; --red: #E5534B;
+  --icon-bg: #1B2130; --hover-tint: rgba(255,255,255,0.04); --red-soft: rgba(229,83,75,0.25);
+}
+:root.theme-light {
+  --bg: #F5F1E8; --panel: #FFFDF9; --panel-2: #EFE9DC; --line: #D9CFB8;
+  --amber: #B8791F; --amber-soft: rgba(184,121,31,0.14); --amber-border: rgba(184,121,31,0.4);
+  --text: #3A322A; --muted: #8A7F6C; --green: #2F8F5C; --blue: #3A6FA8; --red: #C1443A;
+  --icon-bg: #E3DCC8; --hover-tint: rgba(0,0,0,0.04); --red-soft: rgba(193,68,58,0.2);
 }
 html, body { height: 100%; }
 body {
@@ -85,7 +103,7 @@ input, select { font-family: inherit; }
   position: relative; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
   border-radius: 10px; cursor: pointer;
 }
-.price-cat-row:hover { background: rgba(255,255,255,0.04); }
+.price-cat-row:hover { background: var(--hover-tint); }
 .price-cat-row.selected { background: var(--amber-soft); }
 .price-cat-name { flex: 1; font-weight: 700; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .price-cat-count { font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
@@ -112,7 +130,7 @@ input, select { font-family: inherit; }
   position: relative; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
   border-radius: 10px; cursor: pointer;
 }
-.nb-cat-row:hover { background: rgba(255,255,255,0.04); }
+.nb-cat-row:hover { background: var(--hover-tint); }
 .nb-cat-row.selected { background: var(--amber-soft); }
 .nb-cat-name { flex: 1; font-weight: 700; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nb-cat-count { font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
@@ -166,9 +184,9 @@ input, select { font-family: inherit; }
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px;
   padding: 12px 14px; display: flex; gap: 12px; align-items: center; cursor: pointer; margin-bottom: 8px;
 }
-.obj-row.selected { background: var(--amber-soft); border-color: rgba(245,185,61,0.4); }
+.obj-row.selected { background: var(--amber-soft); border-color: var(--amber-border); }
 .obj-row-icon {
-  width: 38px; height: 38px; border-radius: 10px; background: #1B2130; display: flex;
+  width: 38px; height: 38px; border-radius: 10px; background: var(--icon-bg); display: flex;
   align-items: center; justify-content: center; color: var(--amber); flex-shrink: 0; font-size: 16px;
 }
 .obj-row-name { font-weight: 700; font-size: 14px; }
@@ -311,7 +329,7 @@ input, select { font-family: inherit; }
   padding: 10px 12px; font-weight: 700; font-size: 13px; border-right: 1px solid var(--line);
 }
 .ts-total-head { min-width: 56px; color: var(--amber); }
-.ts-weekend { background: rgba(255,255,255,0.04); }
+.ts-weekend { background: var(--hover-tint); }
 .ts-cell {
   height: 40px; min-width: 34px; border-bottom: 1px solid var(--line); cursor: pointer;
   font-weight: 800; font-size: 13px;
@@ -361,7 +379,7 @@ input, select { font-family: inherit; }
   content: ""; position: absolute; width: 17px; height: 17px; left: 2px; top: 2px;
   background: var(--muted); border-radius: 50%; transition: .15s ease;
 }
-.switch input:checked + .switch-track { background: rgba(229,83,75,0.25); border-color: var(--red); }
+.switch input:checked + .switch-track { background: var(--red-soft); border-color: var(--red); }
 .switch input:checked + .switch-track::before { transform: translateX(17px); background: var(--red); }
 .modal-toggle-row { display: flex; gap: 8px; margin-bottom: 14px; }
 .modal-toggle-btn {
@@ -423,7 +441,7 @@ input, select { font-family: inherit; }
 }
 .notes-list-scroll { flex: 1; overflow-y: auto; padding: 10px 10px 14px; }
 .notes-row { padding: 10px 10px; border-radius: 10px; cursor: pointer; margin-bottom: 2px; }
-.notes-row:hover { background: rgba(255,255,255,0.04); }
+.notes-row:hover { background: var(--hover-tint); }
 .notes-row.selected { background: var(--amber-soft); }
 .notes-row-title {
   font-weight: 700; font-size: 13.5px; color: var(--text);
@@ -728,6 +746,7 @@ function migrateData(data) {
   if (data.settings.mainCurrency === undefined) data.settings.mainCurrency = "€";
   if (data.settings.materialsCurrency === undefined) data.settings.materialsCurrency = "₴";
   if (data.settings.workersCurrency === undefined) data.settings.workersCurrency = "₴";
+  if (data.settings.theme === undefined) data.settings.theme = "dark";
   return data;
 }
 function loadData() {
@@ -761,6 +780,17 @@ function companyHeaderLine() {
 function updateSettingsCurrency(field, value) {
   state.data.settings = state.data.settings || {};
   state.data.settings[field] = value;
+  saveData(); render();
+}
+
+/* ---------- Theme (Темна / Світла) ---------- */
+function applyTheme(theme) {
+  document.documentElement.classList.toggle("theme-light", theme === "light");
+}
+function setTheme(theme) {
+  state.data.settings = state.data.settings || {};
+  state.data.settings.theme = theme;
+  applyTheme(theme);
   saveData(); render();
 }
 
@@ -2795,6 +2825,13 @@ function renderSettings() {
     <div class="eyebrow">Система</div>
     <div class="h1" style="margin-bottom:18px;">Налаштування</div>
     <div class="panel" style="margin-bottom:18px;">
+      <div class="group-label" style="margin-top:0;">Вигляд</div>
+      <div class="view-switch">
+        <button class="view-switch-btn ${state.data.settings.theme!=="light"?"selected":""}" onclick="setTheme('dark')">Темна</button>
+        <button class="view-switch-btn ${state.data.settings.theme==="light"?"selected":""}" onclick="setTheme('light')">Світла</button>
+      </div>
+    </div>
+    <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Профіль компанії</div>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
         Ці дані підставляються в шапку друкованих актів і комерційних пропозицій.
@@ -3918,6 +3955,7 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
   openMaterialsReportPreview, saveMaterialsReport, viewMaterialReport,
   openActSelect, toggleActWorkSelect, toggleActRoomSelectAll, goToActPreview, backToActSelect, saveAct, viewAct });
 
+applyTheme(state.data.settings.theme);
 render();
 </script>
 </body>
