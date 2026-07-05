@@ -1086,6 +1086,13 @@ function resolveClientPrice(clientId, priceItemId, basePrice) {
   const ov = (c.priceOverrides||[]).find(o => o.priceItemId === priceItemId);
   return ov ? ov.price : basePrice;
 }
+function clientPriceOverridePct(clientId, priceItemId, basePrice) {
+  if (!clientId) return null;
+  const c = getClient(clientId); if (!c) return null;
+  const ov = (c.priceOverrides||[]).find(o => o.priceItemId === priceItemId);
+  if (!ov || !(basePrice > 0) || !(ov.price < basePrice)) return null;
+  return Math.round(((basePrice - ov.price) / basePrice) * 100);
+}
 function setWorkSearchQuery(q) {
   if (!state.modal) return;
   state.modal.pqQuery = q; state.modal.pqOpen = true; state.modal.priceItemId = null;
@@ -2598,6 +2605,7 @@ function renderClientDetail() {
     <div class="btn-row" style="margin:14px 0;">
       <button class="ghost-btn" onclick="openQuoteBuilder()">Сформувати пропозицію</button>
       <button class="ghost-btn" onclick="openModal('quotesHistory')">Історія пропозицій</button>
+      <button class="ghost-btn" onclick="openModal('priceShare')">Поділитися прайсом</button>
     </div>
     <div class="section-card">
       <div class="section-head">
@@ -3772,6 +3780,54 @@ function renderModal() {
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="shareQuote('${quote?quote.id:""}')">📤 Поділитися</button>
+      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+    </div>`;
+  }
+  if (t === "priceShare") {
+    const c = getClient(state.selectedClientId);
+    const priceItems = state.data.priceItems || [];
+    const categories = [...new Set(priceItems.map(p => p.category || "Без категорії"))].sort((a,b) => a.localeCompare(b, "uk"));
+    const priceShareRowHtml = (p, idx) => {
+      const finalPrice = c ? resolveClientPrice(c.id, p.id, p.price) : p.price;
+      const discountPct = c ? clientPriceOverridePct(c.id, p.id, p.price) : null;
+      const priceCell = discountPct !== null
+        ? `${fmtActEUR(finalPrice)} <span class="mono" style="font-size:10px;font-weight:800;color:var(--red);">−${discountPct}%</span>`
+        : fmtActEUR(finalPrice);
+      return `
+      <tr>
+        <td>${idx+1}</td>
+        <td>${esc(p.name)}</td>
+        <td>${esc(p.unit)}</td>
+        <td class="num">${priceCell}</td>
+      </tr>`;
+    };
+    body = `
+    <h3>Прайс-лист</h3>
+    <div class="print-report act-doc">
+      <div class="act-doc-head">
+        ${companyHeaderLine() ? `<div class="act-doc-executor">${companyHeaderLine()}</div>` : ""}
+        <div class="act-doc-title">Прайс-лист</div>
+        ${c ? `<div class="act-doc-sub">${esc(c.name)}</div>` : ""}
+        <div class="act-doc-sub">Дата формування: ${esc(fmtDateTime(Date.now()))}</div>
+      </div>
+      ${priceItems.length ? `
+      <div class="act-table-wrap">
+        <table class="act-table">
+          <thead>
+            <tr><th>№</th><th>Найменування роботи</th><th>Одиниця виміру</th><th class="num">Ціна, ${mainCurrency()}</th></tr>
+          </thead>
+          <tbody>
+            ${categories.map(cat => `
+              <tr class="act-zone-row"><td colspan="4">${esc(cat)}</td></tr>
+              ${priceItems.filter(p => (p.category||"Без категорії") === cat).map(priceShareRowHtml).join("")}
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      ` : `<div class="empty-slot">У прайсі поки немає жодної позиції.</div>`}
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
       <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
     </div>`;
   }
