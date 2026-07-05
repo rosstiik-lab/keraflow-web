@@ -682,6 +682,7 @@ function migrateData(data) {
       if (it.reportId === undefined) it.reportId = null;
       if ((it.type === "material" || it.type === "receipt") && it.isDebt === undefined) it.isDebt = false;
       if (it.type === "receipt" && it.photo === undefined) it.photo = null;
+      if (it.currency === undefined) it.currency = "€";
     });
     if (o.advances === undefined) o.advances = [];
     if (o.zones === undefined) o.zones = [];
@@ -718,10 +719,14 @@ function migrateData(data) {
     if (e.updatedAt === undefined) e.updatedAt = e.createdAt || Date.now();
   });
   data.workers = data.workers || [];
+  data.workers.forEach(w => { if (w.currency === undefined) w.currency = "€"; });
   data.workerEntries = data.workerEntries || [];
   data.workerPayments = data.workerPayments || [];
   data.companyProfile = data.companyProfile || { name: "", phone: "", email: "" };
   if (data.lastExportAt === undefined) data.lastExportAt = null;
+  data.settings = data.settings || {};
+  if (data.settings.materialsCurrency === undefined) data.settings.materialsCurrency = "₴";
+  if (data.settings.workersCurrency === undefined) data.settings.workersCurrency = "₴";
   return data;
 }
 function loadData() {
@@ -751,6 +756,11 @@ function companyHeaderLine() {
   if (cp.name) parts.push(esc(cp.name));
   if (cp.phone) parts.push(`тел. ${esc(cp.phone)}`);
   return parts.length ? `Виконавець: ${parts.join(", ")}` : "";
+}
+function updateSettingsCurrency(field, value) {
+  state.data.settings = state.data.settings || {};
+  state.data.settings[field] = value;
+  saveData(); render();
 }
 
 /* ---------- Backup (export / import) ---------- */
@@ -797,6 +807,31 @@ function importBackupFile(file) {
 const uid = p => `${p}-${Date.now()}-${Math.floor(Math.random()*1e4)}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const fmtEUR = n => `${n.toFixed(2)} €`;
+
+/* ---------- Currencies (матеріали / працівники — без конвертації) ---------- */
+const CURRENCY_LIST = [
+  { code: "€", label: "Євро" },
+  { code: "₴", label: "Гривня" },
+  { code: "$", label: "Долар" },
+];
+const fmtMoney = (n, currency) => `${(Number(n)||0).toFixed(2)} ${currency||"€"}`;
+function currencyOptionsHtml(selected) {
+  return CURRENCY_LIST.map(c => `<option value="${c.code}" ${selected===c.code?"selected":""}>${c.code} ${c.label}</option>`).join("");
+}
+function sumByCurrency(items, valueFn) {
+  const sums = {};
+  items.forEach(it => {
+    const cur = it.currency || "€";
+    sums[cur] = (sums[cur]||0) + valueFn(it);
+  });
+  return sums;
+}
+function currencyBreakdownHtml(sums, fallbackCurrency) {
+  const entries = Object.entries(sums).filter(([,v]) => Math.abs(v) > 0.005);
+  if (!entries.length) return fmtMoney(0, fallbackCurrency || "€");
+  if (entries.length === 1) return fmtMoney(entries[0][1], entries[0][0]);
+  return entries.map(([cur,v]) => fmtMoney(v, cur)).join("<br>");
+}
 function fmtActEUR(n) {
   const neg = n < 0;
   const fixed = Math.abs(n).toFixed(2);
@@ -844,13 +879,22 @@ function roomSumLeft(room) { return room.works.filter(w=>!w.done).reduce((s,w) =
 function objectSum(obj) { return obj.rooms.reduce((s,r) => s + roomSum(r), 0); }
 function objectSumDone(obj) { return obj.rooms.reduce((s,r) => s + roomSumDone(r), 0); }
 function objectSumLeft(obj) { return obj.rooms.reduce((s,r) => s + roomSumLeft(r), 0); }
-function objectDebtTotal(obj) {
+function objectDebtTotalsByCurrency(obj) {
   const items = obj.materialItems || [];
-  const debtItems = items.filter(it => (it.type==="material"||it.type==="receipt") && it.isDebt)
-    .reduce((s,it) => s + (it.type==="material" ? it.qty*it.price : it.amount), 0);
-  const debtPaid = items.filter(it => it.type==="payment" && it.paymentType==="debt")
-    .reduce((s,p) => s + p.amount, 0);
-  return Math.max(0, debtItems - debtPaid);
+  const debtItems = sumByCurrency(
+    items.filter(it => (it.type==="material"||it.type==="receipt") && it.isDebt),
+    it => it.type==="material" ? it.qty*it.price : it.amount
+  );
+  const debtPaid = sumByCurrency(
+    items.filter(it => it.type==="payment" && it.paymentType==="debt"),
+    p => p.amount
+  );
+  const result = {};
+  new Set([...Object.keys(debtItems), ...Object.keys(debtPaid)]).forEach(cur => {
+    const v = Math.max(0, (debtItems[cur]||0) - (debtPaid[cur]||0));
+    if (v > 0.005) result[cur] = v;
+  });
+  return result;
 }
 
 /* ---------- Actions ---------- */
@@ -1435,16 +1479,16 @@ function deleteNotebookEntry(id) {
 function getWorker(id) { return (state.data.workers||[]).find(w => w.id === id) || null; }
 function selectWorker(id) { state.selectedWorkerId = id; render(); }
 function setWorkerSearch(q) { state.workerSearch = q; render(); }
-function createWorker(name, phone, role, dayRate, note) {
+function createWorker(name, phone, role, dayRate, note, currency) {
   state.data.workers = state.data.workers || [];
-  const w = { id: uid("worker"), name, phone, role, dayRate: Number(dayRate)||0, note, createdAt: Date.now() };
+  const w = { id: uid("worker"), name, phone, role, dayRate: Number(dayRate)||0, note, currency: currency||"€", createdAt: Date.now() };
   state.data.workers.push(w);
   state.selectedWorkerId = w.id;
   saveData(); closeModal();
 }
-function updateWorker(id, name, phone, role, dayRate, note) {
+function updateWorker(id, name, phone, role, dayRate, note, currency) {
   const w = getWorker(id); if (!w) return;
-  w.name = name; w.phone = phone; w.role = role; w.dayRate = Number(dayRate)||0; w.note = note;
+  w.name = name; w.phone = phone; w.role = role; w.dayRate = Number(dayRate)||0; w.note = note; w.currency = currency||"€";
   saveData(); closeModal();
 }
 function deleteWorker(id) {
@@ -1997,16 +2041,21 @@ function renderWorkspaceTab(obj) {
 
 function renderMaterialsHeaderStats(obj) {
   const items = obj.materialItems || [];
-  const materialsTotal = items.filter(it => it.type==="material").reduce((s,m) => s + m.qty*m.price, 0);
-  const paidByCustomer = items.filter(it => it.type==="payment" && it.paymentType==="customer").reduce((s,p) => s + p.amount, 0);
-  const customerDebt = Math.max(0, materialsTotal - paidByCustomer);
-  const supplierDebt = objectDebtTotal(obj);
+  const materialsByCur = sumByCurrency(items.filter(it => it.type==="material"), m => m.qty*m.price);
+  const paidByCustomerByCur = sumByCurrency(items.filter(it => it.type==="payment" && it.paymentType==="customer"), p => p.amount);
+  const customerDebtByCur = {};
+  new Set([...Object.keys(materialsByCur), ...Object.keys(paidByCustomerByCur)]).forEach(cur => {
+    const v = Math.max(0, (materialsByCur[cur]||0) - (paidByCustomerByCur[cur]||0));
+    if (v > 0.005) customerDebtByCur[cur] = v;
+  });
+  const supplierDebtByCur = objectDebtTotalsByCurrency(obj);
+  const fallbackCur = state.data.settings.materialsCurrency;
   return `
   <div class="obj-header-stats-row">
-    <div class="obj-header-stat"><div class="obj-header-stat-label">СУМА МАТЕРІАЛІВ</div><div class="obj-header-stat-val mono">${fmtEUR(materialsTotal)}</div></div>
-    <div class="obj-header-stat"><div class="obj-header-stat-label">ОПЛАЧЕНО ЗАМОВНИКОМ</div><div class="obj-header-stat-val green mono">${fmtEUR(paidByCustomer)}</div></div>
-    <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ЗАМОВНИКА</div><div class="obj-header-stat-val amber mono">${fmtEUR(customerDebt)}</div></div>
-    <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ПЕРЕД ПОСТАЧАЛЬНИКОМ</div><div class="obj-header-stat-val red mono">${fmtEUR(supplierDebt)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">СУМА МАТЕРІАЛІВ</div><div class="obj-header-stat-val mono">${currencyBreakdownHtml(materialsByCur, fallbackCur)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">ОПЛАЧЕНО ЗАМОВНИКОМ</div><div class="obj-header-stat-val green mono">${currencyBreakdownHtml(paidByCustomerByCur, fallbackCur)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ЗАМОВНИКА</div><div class="obj-header-stat-val amber mono">${currencyBreakdownHtml(customerDebtByCur, fallbackCur)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ПЕРЕД ПОСТАЧАЛЬНИКОМ</div><div class="obj-header-stat-val red mono">${currencyBreakdownHtml(supplierDebtByCur, fallbackCur)}</div></div>
   </div>`;
 }
 
@@ -2041,7 +2090,7 @@ function feedItemRowHtml(item) {
     return `<div class="work-row">
       <div style="flex:1">
         <div class="w-name">${esc(item.name)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
-        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} €/${esc(item.unit)}</span></div>
+        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} ${item.currency||"€"}/${esc(item.unit)}</span></div>
       </div>
       <button class="w-del" title="Редагувати" onclick="openModal('material','${item.id}')">✎</button>
       <button class="w-del" title="Видалити" onclick="deleteMaterialItem('${item.id}')">✕</button>
@@ -2050,7 +2099,7 @@ function feedItemRowHtml(item) {
   if (item.type === "receipt") {
     return `<div class="work-row">
       <div style="flex:1">
-        <div class="w-name">${fmtEUR(item.amount)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+        <div class="w-name">${fmtMoney(item.amount, item.currency)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
         <div class="w-meta"><span class="mono">${esc(item.date||"—")}</span>${item.note?`<span>${esc(item.note)}</span>`:""}</div>
         ${item.photo ? `<div style="margin-top:6px;"><img src="${item.photo}" style="max-width:64px;max-height:64px;border-radius:6px;border:1px solid var(--line);object-fit:cover;"></div>` : ""}
       </div>
@@ -2061,7 +2110,7 @@ function feedItemRowHtml(item) {
   const badge = item.paymentType === "customer" ? "Від замовника" : "Борг постачальнику";
   return `<div class="work-row">
     <div style="flex:1">
-      <div class="w-name">${fmtEUR(item.amount)} <span style="font-size:10.5px;font-weight:700;color:var(--muted);">· ${esc(badge)}</span></div>
+      <div class="w-name">${fmtMoney(item.amount, item.currency)} <span style="font-size:10.5px;font-weight:700;color:var(--muted);">· ${esc(badge)}</span></div>
       <div class="w-meta"><span class="mono">${esc(item.date||"—")}</span>${item.note?`<span>${esc(item.note)}</span>`:""}</div>
     </div>
     <button class="w-del" title="Редагувати" onclick="openModal('materialPayment','${item.id}')">✎</button>
@@ -2074,14 +2123,14 @@ function feedItemSummaryHtml(item) {
     return `<div class="work-row" style="margin-bottom:0;">
       <div style="flex:1">
         <div class="w-name">${esc(item.name)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
-        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} €/${esc(item.unit)}</span></div>
+        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} ${item.currency||"€"}/${esc(item.unit)}</span></div>
       </div>
-      <div class="mono" style="font-weight:800;">${fmtEUR(item.qty*item.price)}</div>
+      <div class="mono" style="font-weight:800;">${fmtMoney(item.qty*item.price, item.currency)}</div>
     </div>`;
   }
   return `<div class="work-row" style="margin-bottom:0;">
     <div style="flex:1">
-      <div class="w-name">${fmtEUR(item.amount)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
+      <div class="w-name">${fmtMoney(item.amount, item.currency)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
       <div class="w-meta"><span class="mono">${esc(item.date||"—")}</span>${item.note?`<span>${esc(item.note)}</span>`:""}</div>
       ${item.photo ? `<div style="margin-top:6px;"><img src="${item.photo}" style="max-width:64px;max-height:64px;border-radius:6px;border:1px solid var(--line);object-fit:cover;"></div>` : ""}
     </div>
@@ -2091,14 +2140,14 @@ function feedItemSummaryHtml(item) {
 function reportCardHtml(obj, report) {
   const expanded = !!(state.expandedReportIds && state.expandedReportIds[report.id]);
   const items = (obj.materialItems || []).filter(it => it.reportId === report.id);
-  const total = items.reduce((s,it) => s + (it.type==="material" ? it.qty*it.price : it.amount), 0);
+  const totalByCur = sumByCurrency(items, it => it.type==="material" ? it.qty*it.price : it.amount);
   return `<div class="work-row" style="flex-direction:column;align-items:stretch;cursor:pointer;" onclick="toggleFeedReport('${report.id}')">
     <div style="display:flex;align-items:center;gap:12px;">
       <div style="flex:1">
         <div class="w-name">📄 Звіт №${report.number}</div>
         <div class="w-meta"><span class="mono">${esc(fmtDateTime(report.createdAt))}</span><span class="mono">${items.length} поз.</span></div>
       </div>
-      <div class="mono" style="font-weight:800;">${fmtEUR(total)}</div>
+      <div class="mono" style="font-weight:800;">${currencyBreakdownHtml(totalByCur, state.data.settings.materialsCurrency)}</div>
     </div>
     ${expanded ? `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
       ${items.map(feedItemSummaryHtml).join("")}
@@ -2658,7 +2707,7 @@ function workerRowHtml(w) {
     <div>
       <div class="obj-row-name">${esc(w.name)}</div>
       ${w.role ? `<div class="obj-row-addr">${esc(w.role)}</div>` : ""}
-      ${debt > 0.005 ? `<div class="obj-row-status" style="color:var(--red);">Борг: ${fmtEUR(debt)}</div>` : ""}
+      ${debt > 0.005 ? `<div class="obj-row-status" style="color:var(--red);">Борг: ${fmtMoney(debt, w.currency)}</div>` : ""}
     </div>
   </div>`;
 }
@@ -2680,7 +2729,7 @@ function renderWorkerDetail() {
         <div class="banner-title">${esc(w.name)}</div>
         ${w.phone ? `<div class="banner-addr">📞 ${esc(w.phone)}</div>` : ""}
         ${w.role ? `<div class="banner-addr">🛠️ ${esc(w.role)}</div>` : ""}
-        <div class="banner-addr">${fmtEUR(w.dayRate)}/день</div>
+        <div class="banner-addr">${fmtMoney(w.dayRate, w.currency)}/день</div>
         ${w.note ? `<div class="banner-addr">📝 ${esc(w.note)}</div>` : ""}
       </div>
       <div style="position:relative;">
@@ -2689,9 +2738,9 @@ function renderWorkerDetail() {
       </div>
     </div>
     <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); margin: 14px 0;">
-      <div class="mini-stat"><div class="mini-stat-label">ЗАРОБЛЕНО</div><div class="mini-stat-val mono">${fmtEUR(earned)}</div></div>
-      <div class="mini-stat"><div class="mini-stat-label">ВИПЛАЧЕНО</div><div class="mini-stat-val green mono">${fmtEUR(paid)}</div></div>
-      <div class="mini-stat"><div class="mini-stat-label">${debt < -0.005 ? "ПЕРЕПЛАТА" : "БОРГ ПРАЦІВНИКУ"}</div><div class="mini-stat-val ${debt<-0.005?"green":"amber"} mono">${fmtEUR(Math.abs(debt))}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">ЗАРОБЛЕНО</div><div class="mini-stat-val mono">${fmtMoney(earned, w.currency)}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">ВИПЛАЧЕНО</div><div class="mini-stat-val green mono">${fmtMoney(paid, w.currency)}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">${debt < -0.005 ? "ПЕРЕПЛАТА" : "БОРГ ПРАЦІВНИКУ"}</div><div class="mini-stat-val ${debt<-0.005?"green":"amber"} mono">${fmtMoney(Math.abs(debt), w.currency)}</div></div>
     </div>
     <div class="btn-row" style="margin-bottom:14px;">
       <button class="ghost-btn" onclick="openWorkerEntryModal()">Додати дні</button>
@@ -2701,7 +2750,7 @@ function renderWorkerDetail() {
       <div class="section-head">
         <div><div class="eyebrow">Записи</div><div class="section-title">Виробіток і виплати</div></div>
       </div>
-      ${feed.length ? feed.map(f => f.kind === "entry" ? workerEntryRowHtml(f, w) : workerPaymentRowHtml(f)).join("") : `<div class="empty-slot">Ще немає жодного запису.</div>`}
+      ${feed.length ? feed.map(f => f.kind === "entry" ? workerEntryRowHtml(f, w) : workerPaymentRowHtml(f, w)).join("") : `<div class="empty-slot">Ще немає жодного запису.</div>`}
     </div>
     ${state.openActionMenuId === w.id ? `<div class="menu-overlay" onclick="closeActionMenu()"></div>` : ""}
   `;
@@ -2721,16 +2770,16 @@ function workerEntryRowHtml(e, w) {
   return `<div class="work-row">
     <div style="flex:1">
       <div class="w-name">${e.days} дн.${obj ? ` · ${esc(obj.name)}` : ""} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Виробіток</span></div>
-      <div class="w-meta"><span class="mono">${esc(e.date||"—")}</span><span class="mono">${fmtEUR(sum)}</span>${e.note?`<span>${esc(e.note)}</span>`:""}</div>
+      <div class="w-meta"><span class="mono">${esc(e.date||"—")}</span><span class="mono">${fmtMoney(sum, w.currency)}</span>${e.note?`<span>${esc(e.note)}</span>`:""}</div>
     </div>
     <button class="w-del" title="Редагувати" onclick="openWorkerEntryModal('${e.id}')">✎</button>
     <button class="w-del" title="Видалити" onclick="openModal('deleteWorkerEntry','${e.id}')">✕</button>
   </div>`;
 }
-function workerPaymentRowHtml(p) {
+function workerPaymentRowHtml(p, w) {
   return `<div class="work-row">
     <div style="flex:1">
-      <div class="w-name">${fmtEUR(p.amount)} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;background:var(--green);color:#06120B;">Виплата</span></div>
+      <div class="w-name">${fmtMoney(p.amount, w.currency)} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;background:var(--green);color:#06120B;">Виплата</span></div>
       <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
     </div>
     <button class="w-del" title="Редагувати" onclick="openWorkerPaymentModal('${p.id}')">✎</button>
@@ -2751,6 +2800,15 @@ function renderSettings() {
       <div class="field"><label>Ім'я / назва компанії</label><input id="cp-name" value="${esc(cp.name||"")}" oninput="updateCompanyProfileField('name', this.value)"></div>
       <div class="field"><label>Телефон</label><input id="cp-phone" value="${esc(cp.phone||"")}" oninput="updateCompanyProfileField('phone', this.value)"></div>
       <div class="field"><label>Email (необов'язково)</label><input id="cp-email" type="email" value="${esc(cp.email||"")}" oninput="updateCompanyProfileField('email', this.value)"></div>
+    </div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="group-label" style="margin-top:0;">Валюта</div>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
+        Кожна сума показується у своїй оригінальній валюті — конвертації курсів немає.
+      </p>
+      <div class="field"><label>Основна валюта (роботи, акти, оплати/аванси, прайс)</label><input value="€ Євро" disabled></div>
+      <div class="field"><label>Валюта матеріалів за замовчуванням</label><select onchange="updateSettingsCurrency('materialsCurrency', this.value)">${currencyOptionsHtml(state.data.settings.materialsCurrency)}</select></div>
+      <div class="field"><label>Валюта оплати працівникам за замовчуванням</label><select onchange="updateSettingsCurrency('workersCurrency', this.value)">${currencyOptionsHtml(state.data.settings.workersCurrency)}</select></div>
     </div>
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Резервне копіювання</div>
@@ -3038,7 +3096,10 @@ function renderModal() {
     <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я працівника" value="${editing ? esc(editing.name) : ""}"></div>
     <div class="field"><label>Телефон</label><input id="m-phone" placeholder="+385 ..." value="${editing ? esc(editing.phone||"") : ""}"></div>
     <div class="field"><label>Роль</label><input id="m-role" placeholder="Напр. Плиточник" value="${editing ? esc(editing.role||"") : ""}"></div>
-    <div class="field"><label>Денна ставка (€/день)</label><input id="m-dayrate" type="number" inputmode="decimal" value="${editing ? editing.dayRate : ""}"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Денна ставка / день</label><input id="m-dayrate" type="number" inputmode="decimal" value="${editing ? editing.dayRate : ""}"></div>
+      <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing ? editing.currency : state.data.settings.workersCurrency)}</select></div>
+    </div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Додаткова інформація" value="${editing ? esc(editing.note||"") : ""}"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
@@ -3068,9 +3129,10 @@ function renderModal() {
   }
   if (t === "workerPayment") {
     const editing = state.modal.id ? (state.data.workerPayments||[]).find(p => p.id === state.modal.id) : null;
+    const pw = getWorker(state.selectedWorkerId);
     body = `
     <h3>${editing ? "Редагувати виплату" : "Нова виплата"}</h3>
-    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal" value="${editing ? editing.amount : ""}"></div>
+    <div class="field"><label>Сума (${pw ? pw.currency : "€"})</label><input id="m-amount" type="number" inputmode="decimal" value="${editing ? editing.amount : ""}"></div>
     <div class="field"><label>Дата</label><input id="m-date" type="date" value="${editing ? esc(editing.date||"") : ""}"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково" value="${editing ? esc(editing.note||"") : ""}"></div>
     <div class="modal-actions">
@@ -3092,10 +3154,11 @@ function renderModal() {
   }
   if (t === "deleteWorkerPayment") {
     const p = (state.data.workerPayments||[]).find(p => p.id === state.modal.id);
+    const pw = p ? getWorker(p.workerId) : null;
     if (p) body = `
     <h3>Видалити виплату?</h3>
     <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
-      Видалити виплату ${fmtEUR(p.amount)} від ${esc(p.date||"—")}?
+      Видалити виплату ${fmtMoney(p.amount, pw?pw.currency:"€")} від ${esc(p.date||"—")}?
     </p>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
@@ -3197,9 +3260,15 @@ function renderModal() {
       <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing?editing.qty:""}"></div>
       <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing?esc(editing.unit):"шт"}"></div>
     </div>
-    <div class="field"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing?editing.price:""}"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Ціна за одиницю</label><input id="m-price" type="number" inputmode="decimal" value="${editing?editing.price:""}"></div>
+      <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
+    </div>
     ` : `
-    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+      <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
+    </div>
     <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):""}"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Напр. Будматеріали, магазин" value="${editing?esc(editing.note||""):""}"></div>
     <div class="field"><label>Фото чека</label><input id="m-photo" type="file" accept="image/*" onchange="handleReceiptPhotoChange(this)">
@@ -3225,7 +3294,10 @@ function renderModal() {
       <button class="modal-toggle-btn ${pType==="customer"?"selected":""}" onclick="setMaterialPaymentType('customer')">Оплата від замовника</button>
       <button class="modal-toggle-btn ${pType==="debt"?"selected":""}" onclick="setMaterialPaymentType('debt')">Оплата боргу постачальнику</button>
     </div>
-    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+      <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
+    </div>
     <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):""}"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково" value="${editing?esc(editing.note||""):""}"></div>
     <div class="modal-actions">
@@ -3249,13 +3321,13 @@ function renderModal() {
     <h3>Історія звітів</h3>
     ${reports.length ? reports.map(rep => {
       const items = (o.materialItems||[]).filter(it => (rep.itemIds||[]).includes(it.id));
-      const total = items.reduce((s,it) => s + (it.type==="material" ? it.qty*it.price : it.amount), 0);
+      const totalByCur = sumByCurrency(items, it => it.type==="material" ? it.qty*it.price : it.amount);
       return `<div class="work-row" style="cursor:pointer;" onclick="viewMaterialReport('${rep.id}')">
         <div style="flex:1">
           <div class="w-name">Звіт №${rep.number}</div>
           <div class="w-meta"><span class="mono">${esc(fmtDateTime(rep.createdAt))}</span></div>
         </div>
-        <div class="mono" style="font-weight:800;">${fmtEUR(total)}</div>
+        <div class="mono" style="font-weight:800;">${currencyBreakdownHtml(totalByCur, state.data.settings.materialsCurrency)}</div>
       </div>`;
     }).join("") : `<div class="empty-slot">Ще немає жодного сформованого звіту.</div>`}
     <div class="modal-actions">
@@ -3274,7 +3346,7 @@ function renderModal() {
     }
     const materials = allItems.filter(it => it.type === "material");
     const receipts = allItems.filter(it => it.type === "receipt");
-    const total = materials.reduce((s,m) => s + m.qty*m.price, 0) + receipts.reduce((s,r) => s + r.amount, 0);
+    const totalByCur = sumByCurrency(allItems, it => it.type==="material" ? it.qty*it.price : it.amount);
     body = `
     <h3>Акт по матеріалах${!preview && rep ? ` №${rep.number}` : ""}</h3>
     <div class="print-report">
@@ -3291,9 +3363,9 @@ function renderModal() {
         <div class="work-row">
           <div style="flex:1">
             <div class="w-name">${esc(m.name)}</div>
-            <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} €/${esc(m.unit)}</span></div>
+            <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} ${m.currency||"€"}/${esc(m.unit)}</span></div>
           </div>
-          <div class="mono" style="font-weight:800;">${fmtEUR(m.qty*m.price)}</div>
+          <div class="mono" style="font-weight:800;">${fmtMoney(m.qty*m.price, m.currency)}</div>
         </div>
       `).join("") : `<div class="empty-slot">Матеріалів немає.</div>`}
       <div class="group-label">Чеки</div>
@@ -3301,7 +3373,7 @@ function renderModal() {
         <div class="work-row" style="flex-direction:column;align-items:stretch;">
           <div style="display:flex;gap:12px;align-items:center;">
             <div style="flex:1">
-              <div class="w-name">${fmtEUR(r.amount)}</div>
+              <div class="w-name">${fmtMoney(r.amount, r.currency)}</div>
               <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
             </div>
           </div>
@@ -3309,7 +3381,7 @@ function renderModal() {
         </div>
       `).join("") : `<div class="empty-slot">Чеків немає.</div>`}
       <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
-        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${fmtEUR(total)}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val mono">${currencyBreakdownHtml(totalByCur, state.data.settings.materialsCurrency)}</div></div>
       </div>
     </div>
     <div class="modal-actions">
@@ -3338,7 +3410,7 @@ function renderModal() {
       const badge = p.paymentType === "customer" ? "Від замовника" : "Борг постачальнику";
       return `<div class="work-row">
         <div style="flex:1">
-          <div class="w-name">${fmtEUR(p.amount)} <span style="font-size:10.5px;font-weight:700;color:var(--muted);">· ${esc(badge)}</span></div>
+          <div class="w-name">${fmtMoney(p.amount, p.currency)} <span style="font-size:10.5px;font-weight:700;color:var(--muted);">· ${esc(badge)}</span></div>
           <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
         </div>
       </div>`;
@@ -3771,8 +3843,9 @@ function submitWorker(id) {
   const n = val("m-name"); if (!n) return;
   const phone = val("m-phone"), role = val("m-role"), note = val("m-note");
   const dayRate = val("m-dayrate");
-  if (id) updateWorker(id, n, phone, role, dayRate, note);
-  else createWorker(n, phone, role, dayRate, note);
+  const currency = val("m-currency") || state.data.settings.workersCurrency;
+  if (id) updateWorker(id, n, phone, role, dayRate, note, currency);
+  else createWorker(n, phone, role, dayRate, note, currency);
 }
 function submitWorkerEntry() {
   const workerId = state.selectedWorkerId; if (!workerId) return;
@@ -3798,14 +3871,15 @@ function submitMaterialItem(id) {
   const editing = id ? (o.materialItems||[]).find(it => it.id === id) : null;
   const mode = editing ? editing.type : (state.modal.itemType || "material");
   const isDebt = !!document.getElementById("m-isdebt")?.checked;
+  const currency = val("m-currency") || state.data.settings.materialsCurrency;
   if (mode === "material") {
     const n = val("m-name"); if (!n) return;
-    const fields = { type: "material", name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, isDebt };
+    const fields = { type: "material", name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, isDebt, currency };
     if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   } else {
     const amount = Number(val("m-amount")); if (!amount) return;
     const photo = state.modal.photoData !== undefined ? state.modal.photoData : (editing ? editing.photo : null);
-    const fields = { type: "receipt", amount, date: val("m-date"), note: val("m-note"), isDebt, photo: photo||null };
+    const fields = { type: "receipt", amount, date: val("m-date"), note: val("m-note"), isDebt, photo: photo||null, currency };
     if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   }
 }
@@ -3814,7 +3888,8 @@ function submitMaterialPayment(id) {
   const o = getObj();
   const editing = id && o ? (o.materialItems||[]).find(it => it.id === id) : null;
   const paymentType = state.modal.paymentType || (editing ? editing.paymentType : "customer");
-  const fields = { type: "payment", amount, date: val("m-date"), note: val("m-note"), paymentType };
+  const currency = val("m-currency") || state.data.settings.materialsCurrency;
+  const fields = { type: "payment", amount, date: val("m-date"), note: val("m-note"), paymentType, currency };
   if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
 }
 function submitAdvance() {
