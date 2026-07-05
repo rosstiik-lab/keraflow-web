@@ -1653,6 +1653,13 @@ function onTimesheetCellClick(workerId, dateStr) {
   const existing = entries.find(e => e.workerId === workerId && e.date === dateStr);
   if (existing && existing.objectId) { timesheetCellBlocked(workerId, dateStr); return; }
 
+  if (!existing) {
+    // Перше заповнення дня (порожньо → 1) — питаємо про прив'язку до об'єкта,
+    // це слугує підтвердженням і для минулих дат.
+    timesheetAddDayChoice(workerId, dateStr);
+    return;
+  }
+
   if (dateStr === todayStr) {
     if (state.activeTimesheetWorkerId === workerId) {
       applyTimesheetChange(workerId, dateStr);
@@ -1682,6 +1689,42 @@ function confirmTimesheetChange() {
   if (!state.modal || state.modal.type !== "timesheetConfirm") return;
   const { workerId, dateStr } = state.modal;
   applyTimesheetChange(workerId, dateStr);
+  closeModal();
+}
+function timesheetAddDayChoice(workerId, dateStr) {
+  state.modal = { type: "timesheetAddChoice", workerId, dateStr };
+  render();
+}
+function openTimesheetObjectPick() {
+  if (!state.modal) return;
+  state.modal = { type: "timesheetAddObjectPick", workerId: state.modal.workerId, dateStr: state.modal.dateStr };
+  render();
+}
+function finalizeTimesheetFirstFill(workerId, dateStr, objectId) {
+  const entries = state.data.workerEntries = state.data.workerEntries || [];
+  entries.push({ id: uid("wentry"), workerId, objectId: objectId||null, date: dateStr, days: 1, note: "" });
+  const todayStr = timesheetTodayStr();
+  if (dateStr === todayStr && state.activeTimesheetWorkerId !== workerId) {
+    if (state.activeTimesheetWorkerId) {
+      state.fixedTimesheetWorkerIds = state.fixedTimesheetWorkerIds || [];
+      if (!state.fixedTimesheetWorkerIds.includes(state.activeTimesheetWorkerId)) {
+        state.fixedTimesheetWorkerIds.push(state.activeTimesheetWorkerId);
+      }
+    }
+    state.activeTimesheetWorkerId = workerId;
+  }
+  saveData();
+}
+function timesheetAddWithoutObject() {
+  if (!state.modal) return;
+  const { workerId, dateStr } = state.modal;
+  finalizeTimesheetFirstFill(workerId, dateStr, null);
+  closeModal();
+}
+function timesheetAddWithObject(objectId) {
+  if (!state.modal) return;
+  const { workerId, dateStr } = state.modal;
+  finalizeTimesheetFirstFill(workerId, dateStr, objectId);
   closeModal();
 }
 function timesheetCellBlocked(workerId, dateStr) {
@@ -3295,6 +3338,31 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Ні</button>
       <button class="amber-btn" onclick="confirmTimesheetChange()">Так</button>
+    </div>`;
+  }
+  if (t === "timesheetAddChoice") {
+    const { workerId, dateStr } = state.modal;
+    const w = getWorker(workerId);
+    const dateLabel = new Date(dateStr + "T00:00:00").toLocaleDateString("uk-UA", { day: "numeric", month: "long" });
+    body = `
+    <h3>Додати робочий день</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+      Додати робочий день ${esc(w?w.name:"—")} за ${esc(dateLabel)}. Прив'язати до об'єкта?
+    </p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="timesheetAddWithoutObject()">Ні</button>
+      <button class="amber-btn" onclick="openTimesheetObjectPick()">Так</button>
+    </div>`;
+  }
+  if (t === "timesheetAddObjectPick") {
+    const activeObjects = (state.data.objects||[]).filter(o => o.status !== "done");
+    body = `
+    <h3>Оберіть об'єкт</h3>
+    <div style="max-height:50vh;overflow-y:auto;">
+      ${activeObjects.length ? activeObjects.map(o => `<button class="obj-menu-item" onclick="timesheetAddWithObject('${o.id}')">${esc(o.name)}</button>`).join("") : `<div class="empty-slot">Активних об'єктів немає.</div>`}
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
     </div>`;
   }
   if (t === "deleteObject") {
