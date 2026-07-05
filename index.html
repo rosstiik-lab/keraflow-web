@@ -13,7 +13,7 @@
   try {
     var raw = localStorage.getItem("keraflow-data");
     var data = raw ? JSON.parse(raw) : null;
-    var theme = data && data.settings && data.settings.theme === "light" ? "light" : "dark";
+    var theme = (data && data.settings && data.settings.theme === "dark") ? "dark" : "light";
     document.documentElement.classList.toggle("theme-light", theme === "light");
   } catch (e) {}
 })();
@@ -190,7 +190,7 @@ input, select { font-family: inherit; }
   align-items: center; justify-content: center; color: var(--amber); flex-shrink: 0; font-size: 16px;
 }
 .obj-row-name { font-weight: 700; font-size: 14px; }
-.obj-row.has-menu .obj-row-name { padding-right: 26px; }
+.obj-row.has-menu .obj-row-name { padding-right: 64px; }
 .obj-row-addr { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
 .obj-row-status { color: var(--amber); font-weight: 700; font-size: 11.5px; margin-top: 3px; }
 
@@ -225,7 +225,7 @@ input, select { font-family: inherit; }
 .group-toggle .group-label { margin: 0; }
 
 .obj-row-progress { margin-top: 8px; }
-.obj-row.has-menu .obj-row-progress { padding-right: 26px; }
+.obj-row.has-menu .obj-row-progress { padding-right: 64px; }
 .obj-row-progress-track { height: 5px; border-radius: 999px; background: var(--bg); overflow: hidden; }
 .obj-row-progress-fill { height: 100%; background: var(--amber); border-radius: 999px; }
 .obj-row-progress-label { font-size: 10.5px; color: var(--muted); margin-top: 4px; display: flex; justify-content: space-between; gap: 8px; }
@@ -236,6 +236,11 @@ input, select { font-family: inherit; }
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
 .obj-menu-btn:hover { background: var(--panel); color: var(--text); }
+.obj-row-days-badge {
+  position: absolute; top: 6px; right: 38px; display: flex; flex-direction: column; align-items: center;
+  color: var(--muted);
+}
+.obj-row-days-badge-val { font-size: 10px; font-weight: 800; color: var(--text); margin-top: 1px; line-height: 1; }
 .menu-overlay { position: fixed; inset: 0; z-index: 25; background: transparent; }
 .obj-menu {
   position: absolute; top: 38px; right: 8px; z-index: 30; min-width: 190px;
@@ -554,6 +559,7 @@ const ICON_PATHS = {
   settings: `<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>`,
   search:   `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
   chevron:  `<path d="m6 9 6 6 6-6"/>`,
+  daysBadge:`<path d="M4 15 15 4l5 5-11 11H4z"/><path d="M13 6l5 5"/><path d="M10.5 8.5l2 2"/><path d="M8 11l2 2"/><path d="M20 3 3 20"/>`,
 };
 function svgIcon(key, size) {
   size = size || 22;
@@ -752,7 +758,9 @@ function migrateData(data) {
   if (data.settings.mainCurrency === undefined) data.settings.mainCurrency = "€";
   if (data.settings.materialsCurrency === undefined) data.settings.materialsCurrency = "₴";
   if (data.settings.workersCurrency === undefined) data.settings.workersCurrency = "₴";
-  if (data.settings.theme === undefined) data.settings.theme = "dark";
+  if (data.settings.theme === undefined) data.settings.theme = "light";
+  if (data.settings.ownerFirstName === undefined) data.settings.ownerFirstName = "";
+  if (data.settings.ownerLastName === undefined) data.settings.ownerLastName = "";
   return data;
 }
 function loadData() {
@@ -775,6 +783,13 @@ function updateCompanyProfileField(field, value) {
   state.data.companyProfile[field] = value;
   clearTimeout(companyProfileSaveTimer);
   companyProfileSaveTimer = setTimeout(() => { saveData(); }, 500);
+}
+let ownerNameSaveTimer = null;
+function updateOwnerNameField(field, value) {
+  state.data.settings = state.data.settings || {};
+  state.data.settings[field] = value;
+  clearTimeout(ownerNameSaveTimer);
+  ownerNameSaveTimer = setTimeout(() => { saveData(); }, 500);
 }
 function companyHeaderLine() {
   const cp = state.data.companyProfile || {};
@@ -1526,7 +1541,16 @@ function deleteNotebookEntry(id) {
 }
 
 /* ---------- Workers (Працівники) ---------- */
-function getWorker(id) { return (state.data.workers||[]).find(w => w.id === id) || null; }
+function getOwnerWorker() {
+  const first = (state.data.settings.ownerFirstName || "").trim();
+  const last = (state.data.settings.ownerLastName || "").trim();
+  const name = (first || last) ? `${first} ${last}`.trim() : "Працівник номер один";
+  return { id: "owner", name, isOwner: true };
+}
+function getWorker(id) {
+  if (id === "owner") return getOwnerWorker();
+  return (state.data.workers||[]).find(w => w.id === id) || null;
+}
 function selectWorker(id) { state.selectedWorkerId = id; render(); }
 function setWorkerSearch(q) { state.workerSearch = q; render(); }
 function createWorker(name, phone, role, dayRate, note, currency) {
@@ -1622,6 +1646,10 @@ function daysInMonth(y, m) { return new Date(y, m+1, 0).getDate(); }
 function workerMonthTotal(workerId, y, m) {
   const prefix = `${y}-${pad2(m+1)}-`;
   return (state.data.workerEntries||[]).filter(e => e.workerId === workerId && (e.date||"").startsWith(prefix))
+    .reduce((s,e) => s + (Number(e.days)||0), 0);
+}
+function objectWorkerDaysTotal(objectId) {
+  return (state.data.workerEntries||[]).filter(e => e.objectId === objectId)
     .reduce((s,e) => s + (Number(e.days)||0), 0);
 }
 function timesheetTodayStr() {
@@ -1956,6 +1984,8 @@ function renderObjects() {
 function objListRowHtml(o) {
   const client = o.clientId ? getClient(o.clientId) : null;
   const p = objectProgress(o);
+  const totalDays = objectWorkerDaysTotal(o.id);
+  const daysLabel = totalDays % 1 === 0 ? totalDays : totalDays.toFixed(1);
   return `<div class="obj-row has-menu" onclick="selectObject('${o.id}')">
     <div class="obj-row-icon">${svgIcon("objects", 18)}</div>
     <div style="flex:1;min-width:0;">
@@ -1967,6 +1997,10 @@ function objListRowHtml(o) {
         <div class="obj-row-progress-track"><div class="obj-row-progress-fill" style="width:${p}%"></div></div>
         <div class="obj-row-progress-label"><span>${p}% готово</span><span>оновлено: ${timeAgo(o.updatedAt)}</span></div>
       </div>
+    </div>
+    <div class="obj-row-days-badge" title="Відпрацьовано днів на об'єкті">
+      ${svgIcon("daysBadge", 16)}
+      <div class="obj-row-days-badge-val mono">${daysLabel}</div>
     </div>
     <button class="obj-menu-btn" onclick="toggleActionMenu('${o.id}', event)">⋯</button>
     ${state.openActionMenuId === o.id ? objActionMenuHtml(o) : ""}
@@ -2763,6 +2797,7 @@ function renderWorkers() {
 }
 function renderWorkersTimesheet() {
   const workers = (state.data.workers || []).slice().sort((a,b) => a.name.localeCompare(b.name, "uk"));
+  const timesheetRows = [getOwnerWorker(), ...workers];
   const y = state.timesheetYear, m = state.timesheetMonth;
   const dim = daysInMonth(y, m);
   const days = Array.from({length: dim}, (_, i) => i+1);
@@ -2779,7 +2814,7 @@ function renderWorkersTimesheet() {
       <div class="ts-month-label">${monthLabelCap}</div>
       <button class="ts-month-arrow" onclick="shiftTimesheetMonth(1)">›</button>
     </div>
-    ${workers.length ? `<div class="ts-wrap">
+    <div class="ts-wrap">
       <table class="ts-table">
         <thead><tr>
           <th class="ts-corner"></th>
@@ -2791,9 +2826,9 @@ function renderWorkersTimesheet() {
           }).join("")}
           <th class="ts-total-head">Разом</th>
         </tr></thead>
-        <tbody>${workers.map(w => timesheetRowHtml(w, y, m, days, todayStr)).join("")}</tbody>
+        <tbody>${timesheetRows.map(w => timesheetRowHtml(w, y, m, days, todayStr)).join("")}</tbody>
       </table>
-    </div>` : `<div class="empty-slot">Ще немає жодного працівника.</div>`}
+    </div>
   </div>`;
 }
 function timesheetRowHtml(w, y, m, days, todayStr) {
@@ -2954,6 +2989,10 @@ function renderSettings() {
       <div class="field"><label>Ім'я / назва компанії</label><input id="cp-name" value="${esc(cp.name||"")}" oninput="updateCompanyProfileField('name', this.value)"></div>
       <div class="field"><label>Телефон</label><input id="cp-phone" value="${esc(cp.phone||"")}" oninput="updateCompanyProfileField('phone', this.value)"></div>
       <div class="field"><label>Email (необов'язково)</label><input id="cp-email" type="email" value="${esc(cp.email||"")}" oninput="updateCompanyProfileField('email', this.value)"></div>
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:1"><label>Ім'я власника</label><input id="cp-owner-first" value="${esc(state.data.settings.ownerFirstName||"")}" oninput="updateOwnerNameField('ownerFirstName', this.value)"></div>
+        <div class="field" style="flex:1"><label>Прізвище власника</label><input id="cp-owner-last" value="${esc(state.data.settings.ownerLastName||"")}" oninput="updateOwnerNameField('ownerLastName', this.value)"></div>
+      </div>
     </div>
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Валюта</div>
