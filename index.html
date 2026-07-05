@@ -464,6 +464,7 @@ input, select { font-family: inherit; }
   background: #fdfcf9; color: #1a1a1a; border: 1px solid #ddd; border-radius: 8px; padding: 16px;
 }
 .act-doc-head { margin-bottom: 14px; }
+.act-doc-executor { font-size: 11.5px; color: #555; font-weight: 600; margin-bottom: 6px; }
 .act-doc-title { font-size: 17px; font-weight: 800; color: #1a1a1a; }
 .act-doc-sub { font-size: 12px; color: #555; margin-top: 3px; }
 .act-table-wrap { overflow-x: auto; }
@@ -719,6 +720,8 @@ function migrateData(data) {
   data.workers = data.workers || [];
   data.workerEntries = data.workerEntries || [];
   data.workerPayments = data.workerPayments || [];
+  data.companyProfile = data.companyProfile || { name: "", phone: "", email: "" };
+  if (data.lastExportAt === undefined) data.lastExportAt = null;
   return data;
 }
 function loadData() {
@@ -732,6 +735,62 @@ function loadData() {
 }
 function saveData() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data)); } catch (e) {}
+}
+
+/* ---------- Company profile ---------- */
+let companyProfileSaveTimer = null;
+function updateCompanyProfileField(field, value) {
+  state.data.companyProfile = state.data.companyProfile || { name: "", phone: "", email: "" };
+  state.data.companyProfile[field] = value;
+  clearTimeout(companyProfileSaveTimer);
+  companyProfileSaveTimer = setTimeout(() => { saveData(); }, 500);
+}
+function companyHeaderLine() {
+  const cp = state.data.companyProfile || {};
+  const parts = [];
+  if (cp.name) parts.push(esc(cp.name));
+  if (cp.phone) parts.push(`тел. ${esc(cp.phone)}`);
+  return parts.length ? `Виконавець: ${parts.join(", ")}` : "";
+}
+
+/* ---------- Backup (export / import) ---------- */
+function exportBackup() {
+  const json = JSON.stringify(state.data, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `keraflow-backup-${dateStr}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  state.data.lastExportAt = Date.now();
+  saveData(); render();
+}
+function importBackupFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch (e) {
+      alert("Не вдалося прочитати файл — це не коректний JSON.");
+      return;
+    }
+    if (!confirm("Замінити всі поточні дані даними з файлу? Це не можна скасувати.")) return;
+    try {
+      const migrated = migrateData(parsed);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+      location.reload();
+    } catch (e) {
+      alert("Файл має некоректну структуру даних.");
+    }
+  };
+  reader.onerror = () => alert("Не вдалося прочитати файл.");
+  reader.readAsText(file);
 }
 
 /* ---------- Helpers ---------- */
@@ -2680,9 +2739,31 @@ function workerPaymentRowHtml(p) {
 }
 
 function renderSettings() {
+  const cp = state.data.companyProfile || {};
   return `
     <div class="eyebrow">Система</div>
     <div class="h1" style="margin-bottom:18px;">Налаштування</div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="group-label" style="margin-top:0;">Профіль компанії</div>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
+        Ці дані підставляються в шапку друкованих актів і комерційних пропозицій.
+      </p>
+      <div class="field"><label>Ім'я / назва компанії</label><input id="cp-name" value="${esc(cp.name||"")}" oninput="updateCompanyProfileField('name', this.value)"></div>
+      <div class="field"><label>Телефон</label><input id="cp-phone" value="${esc(cp.phone||"")}" oninput="updateCompanyProfileField('phone', this.value)"></div>
+      <div class="field"><label>Email (необов'язково)</label><input id="cp-email" type="email" value="${esc(cp.email||"")}" oninput="updateCompanyProfileField('email', this.value)"></div>
+    </div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="group-label" style="margin-top:0;">Резервне копіювання</div>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
+        Експортуйте всі дані у файл або відновіть їх із раніше збереженого файлу.
+      </p>
+      <div class="btn-row" style="margin-top:0;">
+        <button class="ghost-btn" onclick="exportBackup()">Експортувати дані</button>
+        <button class="ghost-btn" onclick="document.getElementById('backup-import-input').click()">Імпортувати дані</button>
+      </div>
+      <input id="backup-import-input" type="file" accept=".json,application/json" style="display:none;" onchange="importBackupFile(this.files[0]); this.value='';">
+      ${state.data.lastExportAt ? `<div style="font-size:11px;color:var(--muted);margin-top:10px;">Останній експорт: ${esc(fmtDateTime(state.data.lastExportAt))}</div>` : ""}
+    </div>
     <div class="panel">
       <div class="group-label" style="margin-top:0;">Дані</div>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
@@ -3197,6 +3278,7 @@ function renderModal() {
     body = `
     <h3>Акт по матеріалах${!preview && rep ? ` №${rep.number}` : ""}</h3>
     <div class="print-report">
+      ${companyHeaderLine() ? `<div style="color:var(--muted);font-size:11.5px;font-weight:700;margin-bottom:8px;">${companyHeaderLine()}</div>` : ""}
       ${o ? `<div style="margin-bottom:12px;">
         <div style="font-weight:800;font-size:15px;">${esc(o.name)}</div>
         ${o.address ? `<div style="color:var(--muted);font-size:11.5px;margin-top:2px;">${esc(o.address)}</div>` : ""}
@@ -3417,6 +3499,7 @@ function renderModal() {
     <div class="print-report act-doc">
       ${o ? `
       <div class="act-doc-head">
+        ${companyHeaderLine() ? `<div class="act-doc-executor">${companyHeaderLine()}</div>` : ""}
         <div class="act-doc-title">Акт №${act?act.number:""}</div>
         <div class="act-doc-sub">${esc(o.name)}${o.address?`, ${esc(o.address)}`:""}</div>
         <div class="act-doc-sub">Дата формування: ${act?esc(fmtDateTime(act.createdAt)):""}</div>
@@ -3530,6 +3613,7 @@ function renderModal() {
     <div class="print-report act-doc">
       ${c ? `
       <div class="act-doc-head">
+        ${companyHeaderLine() ? `<div class="act-doc-executor">${companyHeaderLine()}</div>` : ""}
         <div class="act-doc-title">Комерційна пропозиція №${quote?quote.number:""}</div>
         <div class="act-doc-sub">${esc(c.name)}</div>
         <div class="act-doc-sub">Дата формування: ${quote?esc(fmtDateTime(quote.createdAt)):""}</div>
