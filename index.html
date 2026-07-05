@@ -872,6 +872,11 @@ function fmtActEUR(n) {
   return `${neg?"-":""}${withSpaces},${decPart} ${mainCurrency()}`;
 }
 const fmtDateTime = ts => new Date(ts).toLocaleString("uk-UA", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+function nowDatetimeLocal() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 function timeAgo(ts) {
   if (!ts) return "—";
   const diffMs = Date.now() - ts;
@@ -3315,12 +3320,13 @@ function renderModal() {
       <div class="field" style="flex:1"><label>Ціна за одиницю</label><input id="m-price" type="number" inputmode="decimal" value="${editing?editing.price:""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
     </div>
+    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):nowDatetimeLocal()}"></div>
     ` : `
     <div style="display:flex;gap:10px;">
       <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
     </div>
-    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):""}"></div>
+    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):nowDatetimeLocal()}"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Напр. Будматеріали, магазин" value="${editing?esc(editing.note||""):""}"></div>
     <div class="field"><label>Фото чека</label><input id="m-photo" type="file" accept="image/*" onchange="handleReceiptPhotoChange(this)">
       <div id="m-photo-preview" style="margin-top:${photo?"8px":"0"};">${photo ? `<img src="${photo}" style="max-width:100%;max-height:140px;border-radius:8px;border:1px solid var(--line);">` : ""}</div>
@@ -3973,7 +3979,7 @@ function submitMaterialItem(id) {
   const currency = val("m-currency") || state.data.settings.materialsCurrency;
   if (mode === "material") {
     const n = val("m-name"); if (!n) return;
-    const fields = { type: "material", name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, isDebt, currency };
+    const fields = { type: "material", name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, date: val("m-date"), isDebt, currency };
     if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   } else {
     const amount = Number(val("m-amount")); if (!amount) return;
