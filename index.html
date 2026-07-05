@@ -337,6 +337,9 @@ input, select { font-family: inherit; }
 .ts-cell:hover { background: var(--amber-soft); }
 .ts-cell.ts-cell-locked { cursor: default; color: var(--amber); }
 .ts-cell.ts-cell-locked:hover { background: none; }
+.ts-cell.ts-cell-future { cursor: not-allowed; opacity: .4; }
+.ts-cell.ts-cell-future:hover { background: none; }
+.ts-cell.ts-cell-active { background: var(--amber-soft); }
 .ts-today { box-shadow: inset 0 0 0 2px var(--amber); }
 .ts-total-cell { font-weight: 800; color: var(--amber); border-bottom: 1px solid var(--line); }
 
@@ -653,6 +656,8 @@ let state = {
   workerView: "list",
   timesheetYear: new Date().getFullYear(),
   timesheetMonth: new Date().getMonth(),
+  activeTimesheetWorkerId: null,
+  fixedTimesheetWorkerIds: [],
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
 };
@@ -1619,7 +1624,16 @@ function workerMonthTotal(workerId, y, m) {
   return (state.data.workerEntries||[]).filter(e => e.workerId === workerId && (e.date||"").startsWith(prefix))
     .reduce((s,e) => s + (Number(e.days)||0), 0);
 }
-function toggleTimesheetCell(workerId, dateStr) {
+function timesheetTodayStr() {
+  const n = new Date();
+  return ymd(n.getFullYear(), n.getMonth(), n.getDate());
+}
+function timesheetNextLabel(existing) {
+  if (!existing) return "1";
+  if (existing.days === 0.5) return "порожньо";
+  return "0.5";
+}
+function applyTimesheetChange(workerId, dateStr) {
   const entries = state.data.workerEntries = state.data.workerEntries || [];
   const existing = entries.find(e => e.workerId === workerId && e.date === dateStr);
   if (existing && existing.objectId) return;
@@ -1630,7 +1644,45 @@ function toggleTimesheetCell(workerId, dateStr) {
   } else {
     existing.days = 0.5;
   }
-  saveData(); render();
+  saveData();
+}
+function onTimesheetCellClick(workerId, dateStr) {
+  const todayStr = timesheetTodayStr();
+  if (dateStr > todayStr) return; // майбутнє — повністю заблоковано
+  const entries = state.data.workerEntries || [];
+  const existing = entries.find(e => e.workerId === workerId && e.date === dateStr);
+  if (existing && existing.objectId) { timesheetCellBlocked(workerId, dateStr); return; }
+
+  if (dateStr === todayStr) {
+    if (state.activeTimesheetWorkerId === workerId) {
+      applyTimesheetChange(workerId, dateStr);
+      render();
+      return;
+    }
+    if (!(state.fixedTimesheetWorkerIds||[]).includes(workerId)) {
+      if (state.activeTimesheetWorkerId) {
+        state.fixedTimesheetWorkerIds = state.fixedTimesheetWorkerIds || [];
+        if (!state.fixedTimesheetWorkerIds.includes(state.activeTimesheetWorkerId)) {
+          state.fixedTimesheetWorkerIds.push(state.activeTimesheetWorkerId);
+        }
+      }
+      state.activeTimesheetWorkerId = workerId;
+      applyTimesheetChange(workerId, dateStr);
+      render();
+      return;
+    }
+  }
+  openTimesheetConfirm(workerId, dateStr);
+}
+function openTimesheetConfirm(workerId, dateStr) {
+  state.modal = { type: "timesheetConfirm", workerId, dateStr };
+  render();
+}
+function confirmTimesheetChange() {
+  if (!state.modal || state.modal.type !== "timesheetConfirm") return;
+  const { workerId, dateStr } = state.modal;
+  applyTimesheetChange(workerId, dateStr);
+  closeModal();
 }
 function timesheetCellBlocked(workerId, dateStr) {
   const entry = (state.data.workerEntries||[]).find(e => e.workerId === workerId && e.date === dateStr);
@@ -2671,7 +2723,7 @@ function renderWorkersTimesheet() {
   const y = state.timesheetYear, m = state.timesheetMonth;
   const dim = daysInMonth(y, m);
   const days = Array.from({length: dim}, (_, i) => i+1);
-  const now = new Date();
+  const todayStr = timesheetTodayStr();
   const monthLabel = new Date(y, m, 1).toLocaleDateString("uk-UA", { month: "long", year: "numeric" });
   const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
   return `<div class="panel">
@@ -2691,38 +2743,44 @@ function renderWorkersTimesheet() {
           ${days.map(d => {
             const dow = new Date(y,m,d).getDay();
             const isWeekend = dow===0||dow===6;
-            const isToday = y===now.getFullYear() && m===now.getMonth() && d===now.getDate();
+            const isToday = ymd(y,m,d) === todayStr;
             return `<th class="${isWeekend?"ts-weekend":""} ${isToday?"ts-today":""}">${d}<span class="ts-dow">${WEEKDAY_SHORT[dow]}</span></th>`;
           }).join("")}
           <th class="ts-total-head">Разом</th>
         </tr></thead>
-        <tbody>${workers.map(w => timesheetRowHtml(w, y, m, days, now)).join("")}</tbody>
+        <tbody>${workers.map(w => timesheetRowHtml(w, y, m, days, todayStr)).join("")}</tbody>
       </table>
     </div>` : `<div class="empty-slot">Ще немає жодного працівника.</div>`}
   </div>`;
 }
-function timesheetRowHtml(w, y, m, days, now) {
+function timesheetRowHtml(w, y, m, days, todayStr) {
   const total = workerMonthTotal(w.id, y, m);
   return `<tr>
     <td class="ts-name-cell">${esc(w.name)}</td>
-    ${days.map(d => timesheetCellHtml(w, y, m, d, now)).join("")}
+    ${days.map(d => timesheetCellHtml(w, y, m, d, todayStr)).join("")}
     <td class="ts-total-cell mono">${total % 1 === 0 ? total : total.toFixed(1)}</td>
   </tr>`;
 }
-function timesheetCellHtml(w, y, m, d, now) {
+function timesheetCellHtml(w, y, m, d, todayStr) {
   const dateStr = ymd(y, m, d);
   const dow = new Date(y, m, d).getDay();
   const isWeekend = dow === 0 || dow === 6;
-  const isToday = y === now.getFullYear() && m === now.getMonth() && d === now.getDate();
+  const isToday = dateStr === todayStr;
+  const isFuture = dateStr > todayStr;
   const entry = (state.data.workerEntries||[]).find(e => e.workerId === w.id && e.date === dateStr);
   const locked = !!(entry && entry.objectId);
   const label = entry ? (entry.days === 1 ? "1" : entry.days === 0.5 ? "½" : String(entry.days)) : "";
+  const isActiveToday = isToday && state.activeTimesheetWorkerId === w.id;
   const cls = ["ts-cell"];
   if (isWeekend) cls.push("ts-weekend");
   if (isToday) cls.push("ts-today");
+  if (isFuture) cls.push("ts-cell-future");
   if (locked) cls.push("ts-cell-locked");
-  const handler = locked ? `timesheetCellBlocked('${w.id}','${dateStr}')` : `toggleTimesheetCell('${w.id}','${dateStr}')`;
-  return `<td class="${cls.join(" ")}" onclick="${handler}">${label}</td>`;
+  if (isActiveToday) cls.push("ts-cell-active");
+  const onclickAttr = isFuture ? ""
+    : locked ? ` onclick="timesheetCellBlocked('${w.id}','${dateStr}')"`
+    : ` onclick="onTimesheetCellClick('${w.id}','${dateStr}')"`;
+  return `<td class="${cls.join(" ")}"${onclickAttr}>${label}</td>`;
 }
 function renderWorkersList() {
   const workers = (state.data.workers || []).slice();
@@ -3220,6 +3278,23 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="danger-btn" onclick="deleteWorkerPayment('${p.id}')">Видалити</button>
+    </div>`;
+  }
+  if (t === "timesheetConfirm") {
+    const { workerId, dateStr } = state.modal;
+    const w = getWorker(workerId);
+    const entries = state.data.workerEntries || [];
+    const existing = entries.find(e => e.workerId === workerId && e.date === dateStr);
+    const nextLabel = timesheetNextLabel(existing);
+    const dateLabel = new Date(dateStr + "T00:00:00").toLocaleDateString("uk-UA", { day: "numeric", month: "long" });
+    body = `
+    <h3>Підтвердіть зміну</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
+      Змінити ${esc(dateLabel)} для ${esc(w?w.name:"—")} на ${esc(nextLabel)}?
+    </p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Ні</button>
+      <button class="amber-btn" onclick="confirmTimesheetChange()">Так</button>
     </div>`;
   }
   if (t === "deleteObject") {
