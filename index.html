@@ -332,7 +332,9 @@ input, select { font-family: inherit; }
 .ts-name-cell {
   position: sticky; left: 0; z-index: 2; background: var(--panel-2); text-align: left;
   padding: 10px 12px; font-weight: 700; font-size: 13px; border-right: 1px solid var(--line);
+  cursor: pointer;
 }
+.ts-name-cell:hover { color: var(--amber); }
 .ts-total-head { min-width: 56px; color: var(--amber); }
 .ts-weekend { background: var(--hover-tint); }
 .ts-cell {
@@ -1760,6 +1762,21 @@ function timesheetCellBlocked(workerId, dateStr) {
   const obj = entry && entry.objectId ? (state.data.objects||[]).find(o => o.id === entry.objectId) : null;
   alert(`Запис прив'язаний до об'єкта ${obj ? obj.name : "—"} — редагуйте його в картці працівника.`);
 }
+function openTimesheetReport(workerId) {
+  state.modal = { type: "timesheetReport", workerId, period: "month" };
+  render();
+}
+function setTimesheetReportPeriod(period) {
+  if (!state.modal || state.modal.type !== "timesheetReport") return;
+  state.modal.period = period;
+  render();
+}
+function timesheetReportEntries(workerId, period) {
+  const entries = (state.data.workerEntries||[]).filter(e => e.workerId === workerId);
+  if (period === "all") return entries;
+  const prefix = `${state.timesheetYear}-${pad2(state.timesheetMonth+1)}-`;
+  return entries.filter(e => (e.date||"").startsWith(prefix));
+}
 
 /* ---------- Clients ---------- */
 function createClient(name, phone, address, note) {
@@ -2834,7 +2851,7 @@ function renderWorkersTimesheet() {
 function timesheetRowHtml(w, y, m, days, todayStr) {
   const total = workerMonthTotal(w.id, y, m);
   return `<tr>
-    <td class="ts-name-cell">${esc(w.name)}</td>
+    <td class="ts-name-cell" onclick="openTimesheetReport('${w.id}')">${esc(w.name)}</td>
     ${days.map(d => timesheetCellHtml(w, y, m, d, todayStr)).join("")}
     <td class="ts-total-cell mono">${total % 1 === 0 ? total : total.toFixed(1)}</td>
   </tr>`;
@@ -3402,6 +3419,91 @@ function renderModal() {
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+    </div>`;
+  }
+  if (t === "timesheetReport") {
+    const workerId = state.modal.workerId;
+    const period = state.modal.period || "month";
+    const w = getWorker(workerId);
+    const entries = timesheetReportEntries(workerId, period).slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
+    const totalDays = entries.reduce((s,e) => s + (Number(e.days)||0), 0);
+    const hasRate = !!(w && w.dayRate !== undefined && w.dayRate !== null);
+    const earned = hasRate ? entries.reduce((s,e) => s + (Number(e.days)||0) * w.dayRate, 0) : null;
+
+    const byObject = {};
+    entries.forEach(e => {
+      const key = e.objectId || "none";
+      byObject[key] = (byObject[key]||0) + (Number(e.days)||0);
+    });
+    const objectRows = Object.keys(byObject).filter(k => k !== "none").map(id => {
+      const obj = (state.data.objects||[]).find(o => o.id === id);
+      return { name: obj ? obj.name : "Видалений об'єкт", days: byObject[id] };
+    }).sort((a,b) => b.days - a.days);
+    const noObjectDays = byObject["none"] || 0;
+    const fmtDays = n => n % 1 === 0 ? String(n) : n.toFixed(1);
+
+    const monthLabel = dateStr => {
+      const label = new Date(dateStr + "T00:00:00").toLocaleDateString("uk-UA", { month: "long", year: "numeric" });
+      return label.charAt(0).toUpperCase() + label.slice(1);
+    };
+    let groups;
+    if (period === "all") {
+      const byMonth = new Map();
+      entries.forEach(e => {
+        const key = (e.date||"").slice(0, 7);
+        if (!byMonth.has(key)) byMonth.set(key, []);
+        byMonth.get(key).push(e);
+      });
+      groups = [...byMonth.entries()].map(([key, ents]) => ({ label: monthLabel(ents[0].date), entries: ents }));
+    } else {
+      groups = [{ label: null, entries }];
+    }
+    const entryRowHtml = e => {
+      const d = new Date(e.date + "T00:00:00");
+      const dayLabel = d.toLocaleDateString("uk-UA", { day: "numeric", month: "long" });
+      const obj = e.objectId ? (state.data.objects||[]).find(o => o.id === e.objectId) : null;
+      return `<div class="work-row">
+        <div style="flex:1">
+          <div class="w-name">${esc(dayLabel)} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">${WEEKDAY_SHORT[d.getDay()]}</span></div>
+          <div class="w-meta"><span class="mono">${fmtDays(e.days)} дн.</span><span>${obj ? esc(obj.name) : "—"}</span></div>
+        </div>
+      </div>`;
+    };
+
+    body = `
+    <h3>Звіт: ${esc(w?w.name:"—")}</h3>
+    <div class="view-switch">
+      <button class="view-switch-btn ${period!=="all"?"selected":""}" onclick="setTimesheetReportPeriod('month')">Цей місяць</button>
+      <button class="view-switch-btn ${period==="all"?"selected":""}" onclick="setTimesheetReportPeriod('all')">Весь час</button>
+    </div>
+    <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); margin-bottom:16px;">
+      <div class="mini-stat"><div class="mini-stat-label">ВСЬОГО ДНІВ</div><div class="mini-stat-val mono">${fmtDays(totalDays)}</div></div>
+      ${earned !== null ? `<div class="mini-stat"><div class="mini-stat-label">ЗАРОБЛЕНО</div><div class="mini-stat-val amber mono">${fmtMoney(earned, w.currency)}</div></div>` : ""}
+    </div>
+    <div class="group-label" style="margin-top:0;">По об'єктах</div>
+    ${objectRows.length || noObjectDays > 0.005 ? `
+      ${objectRows.map(r => `
+        <div class="work-row" style="margin-bottom:6px;">
+          <div style="flex:1"><div class="w-name">${esc(r.name)}</div></div>
+          <div class="mono" style="font-weight:800;">${fmtDays(r.days)} дн.</div>
+        </div>
+      `).join("")}
+      ${noObjectDays > 0.005 ? `
+        <div class="work-row" style="margin-bottom:6px;">
+          <div style="flex:1"><div class="w-name">Без об'єкта</div></div>
+          <div class="mono" style="font-weight:800;">${fmtDays(noObjectDays)} дн.</div>
+        </div>
+      ` : ""}
+    ` : `<div class="empty-slot">Немає записів за період.</div>`}
+    <div class="group-label">Хронологія</div>
+    <div style="max-height:40vh;overflow-y:auto;">
+      ${entries.length ? groups.map(g => `
+        ${g.label ? `<div class="group-label" style="color:var(--amber);">${esc(g.label)}</div>` : ""}
+        ${g.entries.map(entryRowHtml).join("")}
+      `).join("") : `<div class="empty-slot">Немає записів за період.</div>`}
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Закрити</button>
     </div>`;
   }
   if (t === "deleteObject") {
