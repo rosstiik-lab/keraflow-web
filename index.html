@@ -409,7 +409,8 @@ input, select { font-family: inherit; }
 }
 .field textarea { resize: vertical; }
 .field input[type="date"], .field input[type="datetime-local"] {
-  width: 100%; box-sizing: border-box; min-width: 0; padding: 9px 8px; font-size: 12.5px;
+  width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0; padding: 11px 12px; font-size: 12.5px;
+  -webkit-appearance: none; appearance: none;
 }
 .modal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .modal-actions button { flex: 1; justify-content: center; }
