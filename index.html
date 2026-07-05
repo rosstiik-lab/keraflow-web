@@ -725,6 +725,7 @@ function migrateData(data) {
   data.companyProfile = data.companyProfile || { name: "", phone: "", email: "" };
   if (data.lastExportAt === undefined) data.lastExportAt = null;
   data.settings = data.settings || {};
+  if (data.settings.mainCurrency === undefined) data.settings.mainCurrency = "€";
   if (data.settings.materialsCurrency === undefined) data.settings.materialsCurrency = "₴";
   if (data.settings.workersCurrency === undefined) data.settings.workersCurrency = "₴";
   return data;
@@ -806,15 +807,16 @@ function importBackupFile(file) {
 /* ---------- Helpers ---------- */
 const uid = p => `${p}-${Date.now()}-${Math.floor(Math.random()*1e4)}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-const fmtEUR = n => `${n.toFixed(2)} €`;
 
-/* ---------- Currencies (матеріали / працівники — без конвертації) ---------- */
+/* ---------- Currencies (основна / матеріали / працівники — без конвертації) ---------- */
 const CURRENCY_LIST = [
   { code: "€", label: "Євро" },
   { code: "₴", label: "Гривня" },
   { code: "$", label: "Долар" },
 ];
+const mainCurrency = () => (state.data.settings && state.data.settings.mainCurrency) || "€";
 const fmtMoney = (n, currency) => `${(Number(n)||0).toFixed(2)} ${currency||"€"}`;
+const fmtEUR = n => fmtMoney(n, mainCurrency());
 function currencyOptionsHtml(selected) {
   return CURRENCY_LIST.map(c => `<option value="${c.code}" ${selected===c.code?"selected":""}>${c.code} ${c.label}</option>`).join("");
 }
@@ -837,7 +839,7 @@ function fmtActEUR(n) {
   const fixed = Math.abs(n).toFixed(2);
   const [intPart, decPart] = fixed.split(".");
   const withSpaces = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return `${neg?"-":""}${withSpaces},${decPart} EUR`;
+  return `${neg?"-":""}${withSpaces},${decPart} ${mainCurrency()}`;
 }
 const fmtDateTime = ts => new Date(ts).toLocaleString("uk-UA", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
 function timeAgo(ts) {
@@ -2304,7 +2306,7 @@ function renderRoomDetail(obj, room) {
             <div class="w-name ${w.done?"done":""}">${esc(w.name)}${linkedAct ? ` <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;cursor:pointer;" onclick="viewAct('${linkedAct.id}')">Акт №${linkedAct.number}</span>` : ""}</div>
             <div class="w-meta">
               <span class="mono">${w.qty} ${esc(w.unit)}</span>
-              ${w.price>0 ? `<span class="mono">${w.price} €/${esc(w.unit)}</span>` : ""}
+              ${w.price>0 ? `<span class="mono">${w.price} ${mainCurrency()}/${esc(w.unit)}</span>` : ""}
             </div>
             ${w.note ? `<div class="w-meta" style="margin-top:2px;">📝 ${esc(w.note)}</div>` : ""}
           </div>
@@ -2408,7 +2410,7 @@ function priceRowHtml(p, showCategory) {
       <div class="w-name">${esc(p.name)}</div>
       <div class="w-meta">
         ${showCategory ? `<span class="mono">${esc(p.category||"Без категорії")}</span>` : ""}
-        <span class="mono">${esc(p.unit)}</span><span class="mono">${p.price} €/${esc(p.unit)}</span>
+        <span class="mono">${esc(p.unit)}</span><span class="mono">${p.price} ${mainCurrency()}/${esc(p.unit)}</span>
       </div>
     </div>
     <button class="w-del" title="Опції" onclick="toggleActionMenu('${p.id}', event)">⋯</button>
@@ -2604,7 +2606,7 @@ function clientPriceOverrideRowHtml(c, p) {
   return `<div class="work-row">
     <div style="flex:1">
       <div class="w-name">${esc(p.name)}${override ? ` <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span> ${diffHtml}` : ""}</div>
-      <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">база: ${p.price} €/${esc(p.unit)}</span></div>
+      <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">база: ${p.price} ${mainCurrency()}/${esc(p.unit)}</span></div>
     </div>
     <input type="number" inputmode="decimal" class="inline-num-input" placeholder="База" value="${override ? override.price : ""}"
       onchange="setClientPriceOverride('${c.id}','${p.id}', this.value)">
@@ -2806,7 +2808,11 @@ function renderSettings() {
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
         Кожна сума показується у своїй оригінальній валюті — конвертації курсів немає.
       </p>
-      <div class="field"><label>Основна валюта (роботи, акти, оплати/аванси, прайс)</label><input value="€ Євро" disabled></div>
+      <div class="field">
+        <label>Основна валюта (роботи, акти, оплати/аванси, прайс)</label>
+        <select onchange="updateSettingsCurrency('mainCurrency', this.value)">${currencyOptionsHtml(state.data.settings.mainCurrency)}</select>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Зміна валюти вплине лише на відображення символу. Раніше введені суми не перераховуються.</div>
+      </div>
       <div class="field"><label>Валюта матеріалів за замовчуванням</label><select onchange="updateSettingsCurrency('materialsCurrency', this.value)">${currencyOptionsHtml(state.data.settings.materialsCurrency)}</select></div>
       <div class="field"><label>Валюта оплати працівникам за замовчуванням</label><select onchange="updateSettingsCurrency('workersCurrency', this.value)">${currencyOptionsHtml(state.data.settings.workersCurrency)}</select></div>
     </div>
@@ -2912,7 +2918,7 @@ function renderModal() {
       `}
       <div style="display:flex;gap:10px;">
         <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing.qty}"></div>
-        <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing.price}" disabled></div>
+        <div class="field" style="flex:1"><label>Ціна за одиницю (${mainCurrency()})</label><input id="m-price" type="number" inputmode="decimal" value="${editing.price}" disabled></div>
       </div>
       <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2">${esc(editing.note||"")}</textarea></div>
       <div class="modal-actions">
@@ -2958,7 +2964,7 @@ function renderModal() {
               ${matches.length ? matches.map(p => `
                 <div class="combo-item" onmousedown="event.preventDefault(); pickWorkPriceItem('${p.id}')">
                   <div class="combo-item-name">${esc(p.name)}</div>
-                  <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${p.price} €/${esc(p.unit)}</span></div>
+                  <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${p.price} ${mainCurrency()}/${esc(p.unit)}</span></div>
                 </div>
               `).join("") : `<div class="combo-empty">Нічого не знайдено. Перевірте прайс.</div>`}
             </div>` : ""}
@@ -2970,7 +2976,7 @@ function renderModal() {
             </div>
             <div style="display:flex;gap:10px;">
               <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal"></div>
-              <div class="field" style="flex:1"><label>Ціна за одиницю (€)</label><input id="m-price" type="number" inputmode="decimal" value="${priceForField}" disabled></div>
+              <div class="field" style="flex:1"><label>Ціна за одиницю (${mainCurrency()})</label><input id="m-price" type="number" inputmode="decimal" value="${priceForField}" disabled></div>
             </div>
             <div class="field"><label>Примітка</label><textarea id="m-note" placeholder="Необов'язково" rows="2"></textarea></div>
           ` : `<div class="empty-slot">Оберіть позицію з прайсу вище.</div>`}
@@ -3001,7 +3007,7 @@ function renderModal() {
           ${units.length ? units.map(u => `<option value="${esc(u)}" ${editing && editing.unit===u ? "selected" : ""}>${esc(u)}</option>`).join("") : `<option value="">— спершу додайте одиницю —</option>`}
         </select>
       </div>
-      <div class="field" style="flex:1"><label>Ціна (€)</label><input id="m-price" type="number" inputmode="decimal" value="${editing ? editing.price : ""}"></div>
+      <div class="field" style="flex:1"><label>Ціна (${mainCurrency()})</label><input id="m-price" type="number" inputmode="decimal" value="${editing ? editing.price : ""}"></div>
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
@@ -3307,7 +3313,7 @@ function renderModal() {
   }
   if (t === "advance") body = `
     <h3>Новий аванс від замовника</h3>
-    <div class="field"><label>Сума (€)</label><input id="m-amount" type="number" inputmode="decimal"></div>
+    <div class="field"><label>Сума (${mainCurrency()})</label><input id="m-amount" type="number" inputmode="decimal"></div>
     <div class="field"><label>Дата</label><input id="m-date" type="date"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково"></div>
     <div class="modal-actions">
@@ -3443,7 +3449,7 @@ function renderModal() {
             <input type="checkbox" style="width:20px;height:20px;flex-shrink:0;" ${selected[w.id]?"checked":""} onchange="toggleActWorkSelect('${w.id}')">
             <div style="flex:1">
               <div class="w-name">${esc(w.name)}</div>
-              <div class="w-meta"><span class="mono">${w.qty} ${esc(w.unit)}</span>${w.price>0?`<span class="mono">${w.price} €/${esc(w.unit)}</span>`:""}</div>
+              <div class="w-meta"><span class="mono">${w.qty} ${esc(w.unit)}</span>${w.price>0?`<span class="mono">${w.price} ${mainCurrency()}/${esc(w.unit)}</span>`:""}</div>
             </div>
             <div class="mono" style="font-weight:800;">${fmtEUR(w.qty*w.price)}</div>
           </div>
@@ -3493,7 +3499,7 @@ function renderModal() {
           <div class="work-row">
             <div style="flex:1">
               <div class="w-name">${esc(w.name)}</div>
-              <div class="w-meta"><span class="mono">${w.qty} ${esc(w.unit)}</span>${w.price>0?`<span class="mono">${w.price} €/${esc(w.unit)}</span>`:""}</div>
+              <div class="w-meta"><span class="mono">${w.qty} ${esc(w.unit)}</span>${w.price>0?`<span class="mono">${w.price} ${mainCurrency()}/${esc(w.unit)}</span>`:""}</div>
             </div>
             <div class="mono" style="font-weight:800;">${fmtEUR(w.qty*w.price)}</div>
           </div>
@@ -3581,7 +3587,7 @@ function renderModal() {
         <table class="act-table">
           <thead>
             <tr>
-              <th>№</th><th>Найменування робіт</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна, EUR</th><th class="num">Всього, EUR</th>
+              <th>№</th><th>Найменування робіт</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна, ${mainCurrency()}</th><th class="num">Всього, ${mainCurrency()}</th>
             </tr>
           </thead>
           <tbody>
@@ -3622,7 +3628,7 @@ function renderModal() {
         ${matches.length ? matches.map(p => `
           <div class="combo-item" onmousedown="event.preventDefault(); addQuoteItem('${p.id}')">
             <div class="combo-item-name">${esc(p.name)}</div>
-            <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${resolveClientPrice(state.selectedClientId, p.id, p.price)} €/${esc(p.unit)}</span></div>
+            <div class="combo-item-meta"><span>${esc(p.category||"Без категорії")}</span><span class="mono">${resolveClientPrice(state.selectedClientId, p.id, p.price)} ${mainCurrency()}/${esc(p.unit)}</span></div>
           </div>
         `).join("") : `<div class="combo-empty">Нічого не знайдено. Перевірте прайс.</div>`}
       </div>` : ""}
@@ -3662,7 +3668,7 @@ function renderModal() {
         <div class="work-row">
           <div style="flex:1">
             <div class="w-name">${esc(it.name)}</div>
-            <div class="w-meta"><span class="mono">${it.qty} ${esc(it.unit)}</span><span class="mono">${it.price} €/${esc(it.unit)}</span></div>
+            <div class="w-meta"><span class="mono">${it.qty} ${esc(it.unit)}</span><span class="mono">${it.price} ${mainCurrency()}/${esc(it.unit)}</span></div>
           </div>
           <div class="mono" style="font-weight:800;">${fmtEUR(it.qty*it.price)}</div>
         </div>
@@ -3695,7 +3701,7 @@ function renderModal() {
         <table class="act-table">
           <thead>
             <tr>
-              <th>№</th><th>Найменування</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна, EUR</th><th class="num">Всього, EUR</th>
+              <th>№</th><th>Найменування</th><th class="num">Кількість</th><th>Одиниця виміру</th><th class="num">Ціна, ${mainCurrency()}</th><th class="num">Всього, ${mainCurrency()}</th>
             </tr>
           </thead>
           <tbody>
