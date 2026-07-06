@@ -855,6 +855,18 @@ async function sharePrintReport() {
   });
 
   try {
+    // Межі нерозривних блоків (картки записів, заголовки, підсумок "Разом",
+    // рядки таблиць) відносно контейнера — вимірюємо в розгорнутому стані,
+    // щоб координати збігалися з тим, що відрендерить html2canvas.
+    const blockSelector = ".work-row, .group-label, .room-stats, .act-doc-head, .act-doc-summary, .act-table tr, .empty-slot";
+    const allBlocks = [...el.querySelectorAll(blockSelector)];
+    const topBlocks = allBlocks.filter(b => !allBlocks.some(o => o !== b && o.contains(b)));
+    const elRect = el.getBoundingClientRect();
+    const blockRects = topBlocks.map(b => {
+      const r = b.getBoundingClientRect();
+      return { top: r.top - elRect.top, bottom: r.bottom - elRect.top };
+    });
+
     const canvas = await html2canvas(el, {
       scale: 2, backgroundColor: bg, useCORS: true,
       width: DOC_WIDTH, windowWidth: DOC_WIDTH, scrollX: 0, scrollY: 0,
@@ -863,17 +875,32 @@ async function sharePrintReport() {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF("p", "mm", "a4");
     const pageW = 210, pageH = 297;
-    const imgW = pageW;
-    const imgH = canvas.height * pageW / canvas.width;
-    const imgData = canvas.toDataURL("image/jpeg", 0.92);
-    let heightLeft = imgH, position = 0;
-    pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
-    heightLeft -= pageH;
-    while (heightLeft > 0) {
-      position -= pageH;
-      pdf.addPage();
-      pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
-      heightLeft -= pageH;
+    const ratio = canvas.height / elRect.height;            // CSS px → canvas px
+    const pageHpx = pageH * (canvas.width / pageW);         // висота A4 у пікселях canvas
+    const blocksPx = blockRects.map(b => ({ top: Math.floor(b.top * ratio), bottom: Math.ceil(b.bottom * ratio) }));
+
+    let start = 0, pageIndex = 0;
+    while (start < canvas.height - 1) {
+      let end = Math.min(start + pageHpx, canvas.height);
+      if (end < canvas.height) {
+        // Межа сторінки розрізає блок — переносимо розрив на початок цього блоку,
+        // щоб картка/фото/підсумок цілком пішли на наступну сторінку.
+        const straddling = blocksPx.filter(b => b.top < end && b.bottom > end && b.top > start + 1);
+        if (straddling.length) end = Math.min(...straddling.map(b => b.top));
+      }
+      if (end <= start + 1) end = Math.min(start + pageHpx, canvas.height); // блок вищий за сторінку — ріжемо як є
+      const sliceH = Math.round(end - start);
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceH;
+      const ctx = pageCanvas.getContext("2d");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      ctx.drawImage(canvas, 0, Math.round(start), canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+      if (pageIndex > 0) pdf.addPage();
+      pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, sliceH * pageW / canvas.width);
+      start = end;
+      pageIndex++;
     }
     const blob = pdf.output("blob");
     const file = new File([blob], meta.fileName, { type: "application/pdf" });
