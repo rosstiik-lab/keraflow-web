@@ -489,8 +489,9 @@ input, select { font-family: inherit; }
 }
 
 /* ---------- Act document (справжній офісний документ, світла тема) ---------- */
+.print-report { padding: 36px; }
 .act-doc {
-  background: #fdfcf9; color: #1a1a1a; border: 1px solid #ddd; border-radius: 8px; padding: 16px;
+  background: #fdfcf9; color: #1a1a1a; border: 1px solid #ddd; border-radius: 8px; padding: 36px;
 }
 .act-doc-head { margin-bottom: 14px; }
 .act-doc-executor { font-size: 11.5px; color: #555; font-weight: 600; margin-bottom: 6px; }
@@ -3778,7 +3779,7 @@ function renderModal() {
               <div class="w-meta"><span class="mono">${esc(r.date||"—")}</span>${r.note?`<span>${esc(r.note)}</span>`:""}</div>
             </div>
           </div>
-          ${r.photo ? `<img src="${r.photo}" style="margin-top:8px;max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--line);">` : ""}
+          ${r.photo ? `<img src="${r.photo}" style="margin-top:8px;display:block;align-self:center;width:auto;height:auto;max-width:100%;max-height:320px;object-fit:contain;border-radius:8px;border:1px solid var(--line);">` : ""}
         </div>
       `).join("") : `<div class="empty-slot">Чеків немає.</div>`}
       <div class="room-stats" style="grid-template-columns:1fr;margin-top:4px;">
