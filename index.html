@@ -511,32 +511,9 @@ input, select { font-family: inherit; }
 .act-advance-row { font-size: 12px; color: #555; margin-top: 6px; }
 .act-remainder { font-size: 15px; font-weight: 800; margin-top: 10px; color: #1a1a1a; }
 
-/* ---------- Print (замовницький звіт / акт) ---------- */
-@media print {
-  @page { size: A4; margin: 12mm; }
-  body * { visibility: hidden; }
-  .print-report, .print-report * { visibility: visible; }
-  .print-report { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; }
-  body:has(.act-doc) { background: #fff; }
-  .act-doc, .act-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .act-doc { border: none; }
-  .act-table-wrap { overflow: visible; }
-  .act-table {
-    table-layout: fixed; width: 100%; min-width: 0; font-size: 11px;
-  }
-  .act-table th, .act-table td {
-    border: 1px solid #999; padding: 4px 6px;
-  }
-  .act-table th:nth-child(1), .act-table td:nth-child(1) { width: 5%; }
-  .act-table th:nth-child(2), .act-table td:nth-child(2) {
-    width: 42%; word-wrap: break-word; overflow-wrap: break-word;
-  }
-  .act-table th:nth-child(3), .act-table td:nth-child(3) { width: 10%; }
-  .act-table th:nth-child(4), .act-table td:nth-child(4) { width: 10%; }
-  .act-table th:nth-child(5), .act-table td:nth-child(5) { width: 15%; }
-  .act-table th:nth-child(6), .act-table td:nth-child(6) { width: 18%; }
-}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div class="app" id="app"></div>
@@ -815,6 +792,80 @@ function setTheme(theme) {
   state.data.settings.theme = theme;
   applyTheme(theme);
   saveData(); render();
+}
+
+/* ---------- Share PDF (друковані документи) ---------- */
+function sanitizeFileNamePart(s) {
+  return String(s).trim().replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, "_");
+}
+function docFileName(parts) {
+  return parts.filter(Boolean).map(sanitizeFileNamePart).join("-") + ".pdf";
+}
+function currentDocMeta() {
+  const t = state.modal && state.modal.type;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  if (t === "priceShare") {
+    const c = getClient(state.selectedClientId);
+    return { title: "Прайс-лист", fileName: docFileName(["Прайс-лист", c ? c.name : null, dateStr]) };
+  }
+  if (t === "actView") {
+    const o = getObj();
+    const act = o ? (o.acts||[]).find(a => a.id === state.modal.id) : null;
+    return { title: `Акт №${act ? act.number : ""}`, fileName: docFileName(["Акт", act ? `№${act.number}` : null, o ? o.name : null, dateStr]) };
+  }
+  if (t === "quoteView") {
+    const c = getClient(state.selectedClientId);
+    const q = c ? (c.quotes||[]).find(q => q.id === state.modal.id) : null;
+    return { title: `Комерційна пропозиція №${q ? q.number : ""}`, fileName: docFileName(["Пропозиція", q ? `№${q.number}` : null, c ? c.name : null, dateStr]) };
+  }
+  if (t === "materialReportView") {
+    const o = getObj();
+    const rep = o ? (o.materialReports||[]).find(r => r.id === state.modal.id) : null;
+    return { title: `Акт по матеріалах${rep ? ` №${rep.number}` : ""}`, fileName: docFileName(["Акт-по-матеріалах", rep ? `№${rep.number}` : null, o ? o.name : null, dateStr]) };
+  }
+  return { title: "Документ", fileName: docFileName(["Документ", dateStr]) };
+}
+async function sharePrintReport() {
+  const el = document.querySelector(".modal .print-report");
+  if (!el) return;
+  if (typeof html2canvas === "undefined" || !window.jspdf) {
+    alert("Бібліотеки PDF ще не завантажились. Перевірте з'єднання і спробуйте ще раз.");
+    return;
+  }
+  const meta = currentDocMeta();
+  const bg = el.classList.contains("act-doc") ? "#ffffff" : getComputedStyle(document.body).backgroundColor;
+  try {
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: bg, useCORS: true });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF("p", "mm", "a4");
+    const pageW = 210, pageH = 297;
+    const imgW = pageW;
+    const imgH = canvas.height * pageW / canvas.width;
+    const imgData = canvas.toDataURL("image/jpeg", 0.92);
+    let heightLeft = imgH, position = 0;
+    pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+    heightLeft -= pageH;
+    while (heightLeft > 0) {
+      position -= pageH;
+      pdf.addPage();
+      pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+      heightLeft -= pageH;
+    }
+    const blob = pdf.output("blob");
+    const file = new File([blob], meta.fileName, { type: "application/pdf" });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: meta.title });
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = meta.fileName;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  } catch (e) {
+    if (e && e.name === "AbortError") return; // користувач закрив Share Sheet
+    alert("Не вдалося сформувати PDF. Спробуйте ще раз.");
+  }
 }
 
 /* ---------- Backup (export / import) ---------- */
@@ -1904,22 +1955,6 @@ function quoteItemDiscountPct(it) {
   }
   return null;
 }
-function shareQuote(quoteId) {
-  const c = getClient(state.selectedClientId); if (!c) return;
-  const q = (c.quotes||[]).find(q => q.id === quoteId); if (!q) return;
-  const lines = q.items.map(it => {
-    const discountPct = quoteItemDiscountPct(it);
-    const priceText = discountPct !== null ? `${fmtActEUR(it.price)} (−${discountPct}%)` : fmtActEUR(it.price);
-    return `• ${it.name} — ${it.qty} ${it.unit} × ${priceText} = ${fmtActEUR(it.qty*it.price)}`;
-  });
-  const text = `Комерційна пропозиція №${q.number} для ${c.name}\n${lines.join("\n")}\n\nВсього: ${fmtActEUR(q.totalSum)}`;
-  if (navigator.share) {
-    navigator.share({ title: `Комерційна пропозиція №${q.number}`, text, url: location.href }).catch(() => {});
-  } else {
-    alert("Використайте кнопку «Друк», щоб зберегти як PDF і надіслати.");
-  }
-}
-
 /* ---------- Render ---------- */
 function render() {
   const active = document.activeElement;
@@ -3733,7 +3768,7 @@ function renderModal() {
       ` : `
         <button class="ghost-btn" onclick="closeModal()">Закрити</button>
         <button class="ghost-btn" onclick="openModal('materialReportsHistory')">← Історія</button>
-        <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+        <button class="amber-btn" onclick="sharePrintReport()">📤 Поділитися</button>
       `}
     </div>`;
   }
@@ -3941,7 +3976,7 @@ function renderModal() {
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Закрити</button>
-      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+      <button class="amber-btn" onclick="sharePrintReport()">📤 Поділитися</button>
     </div>`;
   }
   if (t === "quoteBuilder") {
@@ -4070,8 +4105,7 @@ function renderModal() {
       <button class="ghost-btn" onclick="openModal('quotesHistory')">Історія</button>
     </div>
     <div class="modal-actions">
-      <button class="ghost-btn" onclick="shareQuote('${quote?quote.id:""}')">📤 Поділитися</button>
-      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+      <button class="amber-btn" onclick="sharePrintReport()">📤 Поділитися</button>
     </div>`;
   }
   if (t === "priceShare") {
@@ -4119,7 +4153,7 @@ function renderModal() {
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Закрити</button>
-      <button class="amber-btn" onclick="window.print()">🖨️ Друк</button>
+      <button class="amber-btn" onclick="sharePrintReport()">📤 Поділитися</button>
     </div>`;
   }
   if (t === "quotesHistory") {
