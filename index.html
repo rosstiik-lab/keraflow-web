@@ -738,6 +738,8 @@ function migrateData(data) {
   if (data.settings.mainCurrency === undefined) data.settings.mainCurrency = "€";
   if (data.settings.materialsCurrency === undefined) data.settings.materialsCurrency = "₴";
   if (data.settings.workersCurrency === undefined) data.settings.workersCurrency = "₴";
+  if (data.settings.materialsCurrencyManuallySet === undefined) data.settings.materialsCurrencyManuallySet = false;
+  if (data.settings.workersCurrencyManuallySet === undefined) data.settings.workersCurrencyManuallySet = false;
   if (data.settings.theme === undefined) data.settings.theme = "light";
   if (data.settings.ownerFirstName === undefined) data.settings.ownerFirstName = "";
   if (data.settings.ownerLastName === undefined) data.settings.ownerLastName = "";
@@ -781,6 +783,14 @@ function companyHeaderLine() {
 function updateSettingsCurrency(field, value) {
   state.data.settings = state.data.settings || {};
   state.data.settings[field] = value;
+  if (field === "mainCurrency") {
+    if (!state.data.settings.materialsCurrencyManuallySet) state.data.settings.materialsCurrency = value;
+    if (!state.data.settings.workersCurrencyManuallySet) state.data.settings.workersCurrency = value;
+  } else if (field === "materialsCurrency") {
+    state.data.settings.materialsCurrencyManuallySet = true;
+  } else if (field === "workersCurrency") {
+    state.data.settings.workersCurrencyManuallySet = true;
+  }
   saveData(); render();
 }
 
