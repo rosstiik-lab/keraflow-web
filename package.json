@@ -1,0 +1,19 @@
+{
+  "name": "keraflow",
+  "version": "1.0.0",
+  "description": "KERAFLOW — облік об'єктів, робіт, матеріалів, оплат, замовників і працівників для плиточників.",
+  "private": true,
+  "scripts": {
+    "sync": "npx cap sync",
+    "open:ios": "npx cap open ios",
+    "open:android": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.1"
+  }
+}
