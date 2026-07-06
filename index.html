@@ -834,8 +834,31 @@ async function sharePrintReport() {
   }
   const meta = currentDocMeta();
   const bg = el.classList.contains("act-doc") ? "#ffffff" : getComputedStyle(document.body).backgroundColor;
+
+  // Тимчасово розгортаємо документ на повну "паперову" ширину, щоб html2canvas
+  // відрендерив увесь вміст таблиці, а не обрізану скролом/модалкою версію.
+  const DOC_WIDTH = 860;
+  const modal = el.closest(".modal");
+  const wraps = el.querySelectorAll(".act-table-wrap");
+  const saved = [];
+  const setStyle = (node, props) => {
+    const prev = {};
+    Object.keys(props).forEach(k => { prev[k] = node.style[k]; node.style[k] = props[k]; });
+    saved.push({ node, prev });
+  };
+  setStyle(el, { width: DOC_WIDTH + "px", maxWidth: "none" });
+  if (modal) setStyle(modal, { maxWidth: "none", maxHeight: "none", overflow: "visible", width: "auto" });
+  wraps.forEach(w => setStyle(w, { overflow: "visible" }));
+  const restore = () => saved.forEach(({ node, prev }) => {
+    Object.keys(prev).forEach(k => { node.style[k] = prev[k]; });
+  });
+
   try {
-    const canvas = await html2canvas(el, { scale: 2, backgroundColor: bg, useCORS: true });
+    const canvas = await html2canvas(el, {
+      scale: 2, backgroundColor: bg, useCORS: true,
+      width: DOC_WIDTH, windowWidth: DOC_WIDTH, scrollX: 0, scrollY: 0,
+    });
+    restore();
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF("p", "mm", "a4");
     const pageW = 210, pageH = 297;
@@ -863,6 +886,7 @@ async function sharePrintReport() {
       URL.revokeObjectURL(url);
     }
   } catch (e) {
+    restore();
     if (e && e.name === "AbortError") return; // користувач закрив Share Sheet
     alert("Не вдалося сформувати PDF. Спробуйте ще раз.");
   }
