@@ -1,7 +1,7 @@
 # KERAFLOW — правила роботи для Claude Code
 
 ## Проєкт
-Один файл www/index.html — застосунок KERAFLOW для плиточників (облік об'єктів, робіт, матеріалів, оплат, замовників, працівників). Без збірки, чистий HTML/CSS/JS, дані в localStorage (ключ keraflow-data). Папка www/ — webDir для Capacitor (обгортка під iOS/Android), деплой на Vercel теж читає саме з неї.
+Один файл www/index.html — застосунок KERAFLOW для плиточників (облік об'єктів, робіт, матеріалів, оплат, замовників, працівників). Без збірки, чистий HTML/CSS/JS, дані в localStorage (ключ keraflow-data). Папка www/ — webDir для Capacitor (обгортка під Android), деплой на Vercel теж читає саме з неї.
 
 ## Git — ОБОВ'ЯЗКОВО
 - Завжди працюй і комітуй безпосередньо в гілку main.

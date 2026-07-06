@@ -5,15 +5,6 @@ npm-debug.log*
 # macOS
 .DS_Store
 
-# iOS (Xcode) — папка ios/ комітиться в репозиторій, ігноруємо лише сміття збірки
-ios/App/Pods/
-ios/App/build/
-ios/App/DerivedData/
-ios/.build/
-*.xcworkspace/xcuserdata/
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
-
 # Android (Gradle/Android Studio) — папка android/ комітиться в репозиторій, ігноруємо лише сміття збірки
 android/.gradle/
 android/build/
