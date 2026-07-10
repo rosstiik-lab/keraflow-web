@@ -363,6 +363,7 @@ input, select { font-family: inherit; }
   background: none; color: transparent; font-size: 15px;
 }
 .check.done { background: var(--green); border-color: var(--green); color: #06120B; }
+.check:disabled { opacity: .55; cursor: default; }
 .w-name { font-weight: 700; font-size: 13.5px; }
 .w-name.done { color: var(--muted); text-decoration: line-through; }
 .w-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; display: flex; gap: 10px; }
@@ -681,6 +682,7 @@ let state = {
   supabaseCloudPreview: { loading: false, report: "", error: "", objects: [] },
   supabaseReadMode: false,
   supabaseReadData: null,
+  supabaseWorkUpdatingIds: {},
   supabaseSelectedObjId: null,
   supabaseReadLoading: false,
   supabaseReadError: "",
@@ -3405,6 +3407,7 @@ async function enableSupabaseReadMode() {
   if (!user) {
     state.supabaseReadMode = false;
     state.supabaseReadData = null;
+    state.supabaseWorkUpdatingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "Помилка хмарного перегляду Supabase: увійдіть у Supabase перед увімкненням хмарного перегляду.";
@@ -3425,6 +3428,7 @@ async function enableSupabaseReadMode() {
       readSupabaseRows("works", ownerId),
     ]);
     state.supabaseReadData = buildSupabaseReadData(clients, objects, rooms, works);
+    state.supabaseWorkUpdatingIds = {};
     state.supabaseReadMode = true;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "";
@@ -3434,6 +3438,7 @@ async function enableSupabaseReadMode() {
   } catch (error) {
     state.supabaseReadMode = false;
     state.supabaseReadData = null;
+    state.supabaseWorkUpdatingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = `Помилка хмарного перегляду Supabase: ${error.message || error}`;
@@ -3445,6 +3450,7 @@ async function enableSupabaseReadMode() {
 function disableSupabaseReadMode(shouldRender) {
   state.supabaseReadMode = false;
   state.supabaseReadData = null;
+  state.supabaseWorkUpdatingIds = {};
   state.supabaseSelectedObjId = null;
   state.supabaseReadLoading = false;
   state.supabaseReadError = "";
@@ -3497,11 +3503,53 @@ function supabaseRoomProgress(room) {
   return Math.round(works.filter(supabaseWorkDone).length / works.length * 100);
 }
 
+async function toggleSupabaseWorkDone(workId, nextDone) {
+  const user = state.authUser;
+  if (!state.supabaseReadMode || !user || !workId) {
+    state.supabaseReadError = "Помилка оновлення роботи Supabase: увійдіть у Supabase і відкрийте хмарний режим.";
+    render();
+    return;
+  }
+  if (state.supabaseWorkUpdatingIds[workId]) return;
+
+  state.supabaseWorkUpdatingIds[workId] = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("works")
+      .update({ done: !!nextDone })
+      .eq("id", workId)
+      .eq("owner_id", user.id)
+      .select("id,done")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("роботу не знайдено або вона не належить поточному користувачу");
+
+    const readData = state.supabaseReadData || { objects: [] };
+    (readData.objects || []).some(obj => (obj.rooms || []).some(room => {
+      const work = (room.works || []).find(item => item.id === workId);
+      if (!work) return false;
+      work.done = !!nextDone;
+      return true;
+    }));
+  } catch (error) {
+    state.supabaseReadError = `Помилка оновлення роботи Supabase: ${error.message || error}`;
+    console.error("Supabase work update failed", error);
+  } finally {
+    delete state.supabaseWorkUpdatingIds[workId];
+    render();
+  }
+}
+
 function supabaseReadWorkHtml(work) {
   const done = supabaseWorkDone(work);
+  const updating = !!state.supabaseWorkUpdatingIds[work.id];
   const currency = work.currency ? ` ${esc(work.currency)}` : "";
+  const nextDone = !done;
   return `<div class="work-row">
-    <div class="check ${done ? "done" : ""}" style="cursor:default;">✓</div>
+    <button class="check ${done ? "done" : ""}" ${updating ? "disabled" : `onclick="toggleSupabaseWorkDone(${esc(JSON.stringify(work.id))}, ${nextDone})"`}>${done ? "✓" : ""}</button>
     <div style="flex:1;min-width:0;">
       <div class="w-name ${done ? "done" : ""}">${esc(work.name)}</div>
       <div class="w-meta">
@@ -3509,6 +3557,7 @@ function supabaseReadWorkHtml(work) {
         <span>Од.: ${esc(work.unit || "—")}</span>
         <span>Ціна: ${(Number(work.price) || 0).toFixed(2)}${currency}</span>
         <span>Статус: ${done ? "виконано" : "не виконано"}</span>
+        ${updating ? "<span>Оновлюємо...</span>" : ""}
       </div>
       ${work.note ? `<div class="obj-row-addr" style="margin-top:6px;">Нотатка: ${esc(work.note)}</div>` : ""}
     </div>
@@ -3553,8 +3602,8 @@ function renderSupabaseReadObjectDetail() {
       </div>
       <div class="obj-row-addr" style="margin-bottom:6px;">📍 ${esc(obj.address)}</div>
       <div class="obj-row-status" style="margin-bottom:12px;">${esc(statusLabel)}</div>
-      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний перегляд Supabase. Дані тільки читаються.</div>
-      <div class="empty-slot" style="margin-bottom:12px;">Редагування в хмарному режимі ще не увімкнено.</div>
+      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний режим Supabase. Можна змінювати тільки статус виконання робіт.</div>
+      ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       ${rooms.map(supabaseReadRoomHtml).join("") || `<div class="empty-slot">У хмарного обʼєкта немає кімнат.</div>`}
     </div>
   `;
@@ -3571,7 +3620,7 @@ function renderSupabaseReadObjectsList() {
       </div>
       <div class="auth-message ok" style="margin-bottom:12px;">Хмарний перегляд Supabase. Дані тільки читаються.</div>
       <div class="empty-slot" style="margin-bottom:12px;">Редагування в хмарному режимі ще не увімкнено.</div>
-      ${state.supabaseReadError ? `<div class="auth-message err" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+      ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       ${objects.map(supabaseReadObjRowHtml).join("") || `<div class="empty-slot">У Supabase немає обʼєктів для поточного користувача.</div>`}
     </div>
   `;
@@ -3861,7 +3910,7 @@ function renderSupabaseCloudSettings() {
         <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${(state.supabaseImportInProgress || state.supabaseImportBlocked) ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase"}</button>
       </div>
       ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
-      ${state.supabaseReadError ? `<div class="auth-message err" style="margin-top:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+      ${state.supabaseReadError ? `<div class="auth-message error" style="margin-top:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       ${state.supabaseReadMode ? `<div class="auth-message ok" style="margin-top:12px;">Хмарний перегляд Supabase увімкнено. Відкрийте сторінку Обʼєкти.</div>` : ""}
       ${renderSupabaseCloudPreview()}
     </div>
@@ -5171,7 +5220,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
