@@ -686,6 +686,9 @@ let state = {
   supabaseWorkDeletingIds: {},
   supabaseWorkSavingId: null,
   supabaseWorkCreating: false,
+  supabaseRoomCreating: false,
+  supabaseRoomSavingId: null,
+  supabaseRoomDeletingIds: {},
   supabaseSelectedObjId: null,
   supabaseReadLoading: false,
   supabaseReadError: "",
@@ -3413,6 +3416,9 @@ async function enableSupabaseReadMode() {
     state.supabaseWorkUpdatingIds = {};
     state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
+    state.supabaseRoomCreating = false;
+    state.supabaseRoomSavingId = null;
+    state.supabaseRoomDeletingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "Помилка хмарного перегляду Supabase: увійдіть у Supabase перед увімкненням хмарного перегляду.";
@@ -3436,6 +3442,9 @@ async function enableSupabaseReadMode() {
     state.supabaseWorkUpdatingIds = {};
     state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
+    state.supabaseRoomCreating = false;
+    state.supabaseRoomSavingId = null;
+    state.supabaseRoomDeletingIds = {};
     state.supabaseReadMode = true;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "";
@@ -3448,6 +3457,9 @@ async function enableSupabaseReadMode() {
     state.supabaseWorkUpdatingIds = {};
     state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
+    state.supabaseRoomCreating = false;
+    state.supabaseRoomSavingId = null;
+    state.supabaseRoomDeletingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = `Помилка хмарного перегляду Supabase: ${error.message || error}`;
@@ -3462,6 +3474,9 @@ function disableSupabaseReadMode(shouldRender) {
   state.supabaseWorkUpdatingIds = {};
   state.supabaseWorkDeletingIds = {};
   state.supabaseWorkSavingId = null;
+  state.supabaseRoomCreating = false;
+  state.supabaseRoomSavingId = null;
+  state.supabaseRoomDeletingIds = {};
   state.supabaseSelectedObjId = null;
   state.supabaseReadLoading = false;
   state.supabaseReadError = "";
@@ -3623,6 +3638,50 @@ async function deleteSupabaseWork(workId) {
   }
 }
 
+async function deleteSupabaseRoom(roomId) {
+  const user = state.authUser;
+  const room = roomId ? findSupabaseReadRoom(roomId) : null;
+  const works = room && Array.isArray(room.works) ? room.works : [];
+  if (!state.supabaseReadMode || !user || !roomId || !room) {
+    state.supabaseReadError = "Помилка видалення кімнати Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть кімнату.";
+    render();
+    return;
+  }
+  if (state.supabaseRoomDeletingIds[roomId]) return;
+  if (works.length > 0) {
+    state.supabaseReadError = "Спочатку видаліть роботи в цій кімнаті.";
+    render();
+    return;
+  }
+
+  const confirmed = confirm("Видалити цю кімнату з Supabase?");
+  if (!confirmed) return;
+
+  state.supabaseRoomDeletingIds[roomId] = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { error } = await supabaseClient
+      .from("object_rooms")
+      .delete()
+      .eq("id", roomId)
+      .eq("owner_id", user.id);
+    if (error) throw error;
+
+    const object = findSupabaseReadObjectByRoomId(roomId);
+    if (object && Array.isArray(object.rooms)) {
+      object.rooms = object.rooms.filter(item => item.id !== roomId);
+    }
+  } catch (error) {
+    state.supabaseReadError = `Помилка видалення кімнати Supabase: ${error.message || error}`;
+    console.error("Supabase room delete failed", error);
+  } finally {
+    delete state.supabaseRoomDeletingIds[roomId];
+    render();
+  }
+}
+
 function supabaseReadWorkHtml(work) {
   const done = supabaseWorkDone(work);
   const updating = !!state.supabaseWorkUpdatingIds[work.id];
@@ -3654,13 +3713,20 @@ function supabaseReadRoomHtml(room) {
   const works = Array.isArray(room.works) ? room.works : [];
   const doneCount = works.filter(supabaseWorkDone).length;
   const progress = supabaseRoomProgress(room);
+  const saving = state.supabaseRoomSavingId === room.id;
+  const deleting = !!state.supabaseRoomDeletingIds[room.id];
+  const disabled = saving || deleting;
   return `<div class="room-block">
     <div class="room-head">
       <div>
         <div class="room-title">${esc(room.name)}</div>
         <div class="room-stats">Робіт: ${works.length} · Виконано: ${doneCount} · Прогрес: ${progress}%</div>
       </div>
-      ${state.supabaseReadMode ? `<button class="amber-btn" onclick="openModal('supabaseNewWork', ${esc(JSON.stringify(room.id))})">+ Додати роботу</button>` : ""}
+      ${state.supabaseReadMode ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;">
+        <button class="ghost-btn" ${disabled ? "disabled" : `onclick="openModal('supabaseRoom', ${esc(JSON.stringify(room.id))})"`}>${saving ? "Зберігаємо..." : "Редагувати кімнату"}</button>
+        <button class="ghost-btn" ${disabled ? "disabled" : `onclick="deleteSupabaseRoom(${esc(JSON.stringify(room.id))})"`}>${deleting ? "Видаляємо..." : "Видалити кімнату"}</button>
+        <button class="amber-btn" ${disabled ? "disabled" : `onclick="openModal('supabaseNewWork', ${esc(JSON.stringify(room.id))})"`}>+ Додати роботу</button>
+      </div>` : ""}
     </div>
     <div class="obj-row-progress" style="margin-bottom:12px;">
       <div class="obj-row-progress-track"><div class="obj-row-progress-fill" style="width:${progress}%"></div></div>
@@ -3689,9 +3755,10 @@ function renderSupabaseReadObjectDetail() {
       </div>
       <div class="obj-row-addr" style="margin-bottom:6px;">📍 ${esc(obj.address)}</div>
       <div class="obj-row-status" style="margin-bottom:12px;">${esc(statusLabel)}</div>
-      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний режим Supabase. Можна змінювати тільки статус виконання робіт.</div>
+      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний режим Supabase. Можна керувати кімнатами та роботами без перезавантаження сторінки.</div>
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       ${rooms.map(supabaseReadRoomHtml).join("") || `<div class="empty-slot">У хмарного обʼєкта немає кімнат.</div>`}
+      <button class="dashed-btn" ${state.supabaseRoomCreating ? "disabled" : ""} onclick="openModal('supabaseRoom')">${state.supabaseRoomCreating ? "Створюємо..." : "+ Додати кімнату"}</button>
     </div>
   `;
 }
@@ -4120,6 +4187,28 @@ function renderModal() {
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
         <button class="amber-btn" onclick="submitSupabaseNewWork()" ${disabled}>${creating ? "Створюємо..." : "Створити"}</button>
+      </div>
+    ` : `
+      <div class="empty-slot">Кімнату Supabase не знайдено.</div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+      </div>
+    `}
+    `;
+  }
+  if (t === "supabaseRoom") {
+    const editing = state.modal.id ? findSupabaseReadRoom(state.modal.id) : null;
+    const creating = !editing && !!state.supabaseRoomCreating;
+    const saving = !!(editing && state.supabaseRoomSavingId === editing.id);
+    const disabled = (creating || saving) ? "disabled" : "";
+    body = `
+    <h3>${editing ? "Редагувати кімнату Supabase" : "Нова кімната Supabase"}</h3>
+    ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+    ${(!state.modal.id || editing) ? `
+      <div class="field"><label>Назва</label><input id="supabase-room-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
+        <button class="amber-btn" onclick="${editing ? "submitSupabaseRoomEdit()" : "submitSupabaseNewRoom()"}" ${disabled}>${creating ? "Створюємо..." : (saving ? "Зберігаємо..." : "Зберегти")}</button>
       </div>
     ` : `
       <div class="empty-slot">Кімнату Supabase не знайдено.</div>
@@ -5216,6 +5305,97 @@ function renderModal() {
 
 function val(id) { return document.getElementById(id)?.value.trim() || ""; }
 
+async function submitSupabaseNewRoom() {
+  const user = state.authUser;
+  const object = getSupabaseReadObject();
+  if (!state.supabaseReadMode || !user || !object) {
+    state.supabaseReadError = "Помилка створення кімнати Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть обʼєкт.";
+    render();
+    return;
+  }
+  if (state.supabaseRoomCreating) return;
+
+  const name = val("supabase-room-name");
+  if (!name) return;
+  const rooms = Array.isArray(object.rooms) ? object.rooms : [];
+  const sort_order = rooms.length;
+
+  state.supabaseRoomCreating = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("object_rooms")
+      .insert({
+        owner_id: user.id,
+        object_id: object.id,
+        name,
+        sort_order
+      })
+      .select("id,object_id,name,sort_order")
+      .single();
+    if (error) throw error;
+
+    if (!Array.isArray(object.rooms)) object.rooms = [];
+    object.rooms.push({
+      id: data.id,
+      objectId: data.object_id || object.id,
+      name: data.name || name,
+      sortOrder: Number(data.sort_order || sort_order) || 0,
+      works: []
+    });
+    object.rooms.sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0));
+    state.modal = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка створення кімнати Supabase: ${error.message || error}`;
+    console.error("Supabase room create failed", error);
+  } finally {
+    state.supabaseRoomCreating = false;
+    render();
+  }
+}
+
+async function submitSupabaseRoomEdit() {
+  const roomId = state.modal && state.modal.id;
+  const user = state.authUser;
+  const room = roomId ? findSupabaseReadRoom(roomId) : null;
+  if (!state.supabaseReadMode || !user || !roomId || !room) {
+    state.supabaseReadError = "Помилка редагування кімнати Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть кімнату.";
+    render();
+    return;
+  }
+  if (state.supabaseRoomSavingId === roomId) return;
+
+  const name = val("supabase-room-name");
+  if (!name) return;
+
+  state.supabaseRoomSavingId = roomId;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("object_rooms")
+      .update({ name })
+      .eq("id", roomId)
+      .eq("owner_id", user.id)
+      .select("id,name")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("кімнату не знайдено або вона не належить поточному користувачу");
+
+    room.name = data.name || name;
+    state.modal = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка редагування кімнати Supabase: ${error.message || error}`;
+    console.error("Supabase room edit failed", error);
+  } finally {
+    state.supabaseRoomSavingId = null;
+    render();
+  }
+}
+
 async function submitSupabaseNewWork() {
   const roomId = state.modal && state.modal.id;
   const user = state.authUser;
@@ -5481,7 +5661,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseRoom, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
