@@ -683,6 +683,7 @@ let state = {
   supabaseReadMode: false,
   supabaseReadData: null,
   supabaseWorkUpdatingIds: {},
+  supabaseWorkDeletingIds: {},
   supabaseWorkSavingId: null,
   supabaseWorkCreating: false,
   supabaseSelectedObjId: null,
@@ -3410,6 +3411,7 @@ async function enableSupabaseReadMode() {
     state.supabaseReadMode = false;
     state.supabaseReadData = null;
     state.supabaseWorkUpdatingIds = {};
+    state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
@@ -3432,6 +3434,7 @@ async function enableSupabaseReadMode() {
     ]);
     state.supabaseReadData = buildSupabaseReadData(clients, objects, rooms, works);
     state.supabaseWorkUpdatingIds = {};
+    state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
     state.supabaseReadMode = true;
     state.supabaseReadLoading = false;
@@ -3443,6 +3446,7 @@ async function enableSupabaseReadMode() {
     state.supabaseReadMode = false;
     state.supabaseReadData = null;
     state.supabaseWorkUpdatingIds = {};
+    state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
@@ -3456,6 +3460,7 @@ function disableSupabaseReadMode(shouldRender) {
   state.supabaseReadMode = false;
   state.supabaseReadData = null;
   state.supabaseWorkUpdatingIds = {};
+  state.supabaseWorkDeletingIds = {};
   state.supabaseWorkSavingId = null;
   state.supabaseSelectedObjId = null;
   state.supabaseReadLoading = false;
@@ -3577,9 +3582,51 @@ async function toggleSupabaseWorkDone(workId, nextDone) {
   }
 }
 
+async function deleteSupabaseWork(workId) {
+  const user = state.authUser;
+  if (!state.supabaseReadMode || !user || !workId) {
+    state.supabaseReadError = "Помилка видалення роботи Supabase: увійдіть у Supabase і відкрийте хмарний режим.";
+    render();
+    return;
+  }
+  if (state.supabaseWorkDeletingIds[workId]) return;
+
+  const confirmed = confirm("Видалити цю роботу з Supabase? Цю дію не можна скасувати.");
+  if (!confirmed) return;
+
+  state.supabaseWorkDeletingIds[workId] = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { error } = await supabaseClient
+      .from("works")
+      .delete()
+      .eq("id", workId)
+      .eq("owner_id", user.id);
+    if (error) throw error;
+
+    const readData = state.supabaseReadData || { objects: [] };
+    (readData.objects || []).some(obj => (obj.rooms || []).some(room => {
+      const works = Array.isArray(room.works) ? room.works : [];
+      const workIndex = works.findIndex(item => item.id === workId);
+      if (workIndex === -1) return false;
+      room.works = works.filter(item => item.id !== workId);
+      return true;
+    }));
+  } catch (error) {
+    state.supabaseReadError = `Помилка видалення роботи Supabase: ${error.message || error}`;
+    console.error("Supabase work delete failed", error);
+  } finally {
+    delete state.supabaseWorkDeletingIds[workId];
+    render();
+  }
+}
+
 function supabaseReadWorkHtml(work) {
   const done = supabaseWorkDone(work);
   const updating = !!state.supabaseWorkUpdatingIds[work.id];
+  const deleting = !!state.supabaseWorkDeletingIds[work.id];
   const currency = work.currency ? ` ${esc(work.currency)}` : "";
   const nextDone = !done;
   return `<div class="work-row">
@@ -3592,8 +3639,12 @@ function supabaseReadWorkHtml(work) {
         <span>Ціна: ${(Number(work.price) || 0).toFixed(2)}${currency}</span>
         <span>Статус: ${done ? "виконано" : "не виконано"}</span>
         ${updating ? "<span>Оновлюємо...</span>" : ""}
+        ${deleting ? "<span>Видаляємо...</span>" : ""}
       </div>
-      <button class="ghost-btn" style="margin-top:8px;" onclick="openModal('supabaseWork', ${esc(JSON.stringify(work.id))})">Редагувати</button>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+        <button class="ghost-btn" onclick="openModal('supabaseWork', ${esc(JSON.stringify(work.id))})">Редагувати</button>
+        <button class="ghost-btn" ${deleting ? "disabled" : `onclick="deleteSupabaseWork(${esc(JSON.stringify(work.id))})"`}>${deleting ? "Видаляємо..." : "Видалити"}</button>
+      </div>
       ${work.note ? `<div class="obj-row-addr" style="margin-top:6px;">Нотатка: ${esc(work.note)}</div>` : ""}
     </div>
   </div>`;
@@ -5430,7 +5481,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, toggleSupabaseWorkDone, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
