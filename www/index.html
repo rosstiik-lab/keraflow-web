@@ -512,9 +512,28 @@ input, select { font-family: inherit; }
 .act-advance-row { font-size: 12px; color: #555; margin-top: 6px; }
 .act-remainder { font-size: 15px; font-weight: 800; margin-top: 10px; color: #1a1a1a; }
 
+/* ---------- Auth ---------- */
+.auth-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.auth-card { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 24px; box-shadow: 0 18px 48px rgba(0,0,0,.22); }
+.auth-brand { width: 48px; height: 48px; border-radius: 16px; background: var(--amber); color: #1A1300; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; margin-bottom: 16px; }
+.auth-copy { color: var(--muted); line-height: 1.55; margin: 10px 0 18px; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-field label { display: block; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; margin-bottom: 7px; }
+.auth-field input { width: 100%; padding: 12px 13px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 14px; }
+.auth-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.auth-message { min-height: 20px; margin-top: 12px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.auth-message.error { color: var(--red); }
+.auth-message.ok { color: var(--green); }
+.auth-topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+.auth-user { min-width: 0; color: var(--muted); font-size: 12.5px; }
+.auth-user strong { color: var(--text); overflow-wrap: anywhere; }
+.auth-warning { margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--amber-border); background: var(--amber-soft); border-radius: 14px; color: var(--text); font-size: 12.5px; line-height: 1.45; }
+@media (max-width: 599px) { .auth-topbar { align-items: flex-start; flex-direction: column; } }
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="app" id="app"></div>
@@ -528,6 +547,10 @@ input, select { font-family: inherit; }
 ========================================================= */
 
 const STORAGE_KEY = "keraflow-data";
+
+const SUPABASE_URL = "https://wrtrxsiyzocinisadhvk.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_iQGaV9lflm8ZUaPcVdHGFg_8vzw6K_3";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 /* ---------- Icons (linear SVG, Lucide/Feather style) ---------- */
 const ICON_PATHS = {
@@ -646,6 +669,11 @@ let state = {
   fixedTimesheetWorkerIds: [],
   data: loadData(),
   modal: null, // { type: 'object'|'room'|'work'|'price'|'priceCategory'|'priceUnits'|'client'|'deleteObject'|'zone' }
+  authInitialized: false,
+  authUser: null,
+  authWarnings: [],
+  authMessage: "",
+  authMessageType: "",
 };
 
 function migrateData(data) {
@@ -756,6 +784,127 @@ function loadData() {
 }
 function saveData() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data)); } catch (e) {}
+}
+
+
+/* ---------- Supabase Auth ---------- */
+async function initAuth() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    state.authMessage = error.message;
+    state.authMessageType = "error";
+  }
+  state.authUser = data && data.session ? data.session.user : null;
+  state.authInitialized = true;
+  if (state.authUser) await verifyAuthRecords();
+  render();
+}
+
+supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+  state.authUser = session ? session.user : null;
+  state.authWarnings = [];
+  if (state.authInitialized && state.authUser) await verifyAuthRecords();
+  if (state.authInitialized) render();
+});
+
+async function verifyAuthRecords() {
+  const user = state.authUser;
+  if (!user) return;
+  const warnings = [];
+  const { data: profile, error: profileError } = await supabaseClient
+    .from("profiles")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profileError) warnings.push(`Не вдалося перевірити profiles: ${profileError.message}`);
+  else if (!profile) warnings.push("Профіль користувача ще не знайдено у таблиці profiles.");
+
+  const { data: appSettings, error: appSettingsError } = await supabaseClient
+    .from("app_settings")
+    .select("owner_id")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (appSettingsError) warnings.push(`Не вдалося перевірити app_settings: ${appSettingsError.message}`);
+  else if (!appSettings) warnings.push("Налаштування застосунку ще не знайдено у таблиці app_settings.");
+  state.authWarnings = warnings;
+}
+
+async function signInWithEmail() {
+  const email = val("auth-email");
+  const password = val("auth-password");
+  if (!email || !password) {
+    state.authMessage = "Введіть email і пароль.";
+    state.authMessageType = "error";
+    render();
+    return;
+  }
+  state.authMessage = "Входимо...";
+  state.authMessageType = "";
+  render();
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  state.authMessage = error ? error.message : "Вхід виконано.";
+  state.authMessageType = error ? "error" : "ok";
+  if (!error) await initAuth();
+  else render();
+}
+
+async function signUpWithEmail() {
+  const email = val("auth-email");
+  const password = val("auth-password");
+  if (!email || !password) {
+    state.authMessage = "Введіть email і пароль для реєстрації.";
+    state.authMessageType = "error";
+    render();
+    return;
+  }
+  state.authMessage = "Реєструємо...";
+  state.authMessageType = "";
+  render();
+  const { error } = await supabaseClient.auth.signUp({ email, password });
+  state.authMessage = error ? error.message : "Реєстрацію створено. Якщо Supabase вимагає підтвердження, перевірте email.";
+  state.authMessageType = error ? "error" : "ok";
+  if (!error) await initAuth();
+  else render();
+}
+
+async function signOut() {
+  await supabaseClient.auth.signOut();
+  state.authUser = null;
+  state.authWarnings = [];
+  render();
+}
+
+function renderAuthScreen() {
+  if (!state.authInitialized) {
+    return `<div class="auth-shell"><div class="auth-card"><div class="auth-brand">K</div><div class="h1">Завантаження KeraFlow...</div></div></div>`;
+  }
+  return `<div class="auth-shell">
+    <div class="auth-card">
+      <div class="auth-brand">K</div>
+      <div class="eyebrow">KeraFlow Auth</div>
+      <div class="h1">Увійдіть у свій акаунт</div>
+      <p class="auth-copy">Авторизація працює через Supabase. Дані програми на цьому етапі залишаються у localStorage цього браузера.</p>
+      <div class="auth-form">
+        <div class="auth-field"><label>Email</label><input id="auth-email" type="email" autocomplete="email" placeholder="you@example.com"></div>
+        <div class="auth-field"><label>Password</label><input id="auth-password" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') signInWithEmail()"></div>
+        <div class="auth-actions">
+          <button class="amber-btn" onclick="signInWithEmail()">Увійти</button>
+          <button class="ghost-btn" onclick="signUpWithEmail()">Реєстрація</button>
+        </div>
+      </div>
+      <div class="auth-message ${state.authMessageType}">${esc(state.authMessage || "")}</div>
+    </div>
+  </div>`;
+}
+
+function renderAuthTopbar() {
+  const email = state.authUser && state.authUser.email ? state.authUser.email : "";
+  return `<div class="auth-topbar"><div class="auth-user">Користувач: <strong>${esc(email)}</strong></div><button class="ghost-btn" onclick="signOut()">Вийти</button></div>`;
+}
+
+function renderAuthWarnings() {
+  if (!state.authWarnings || !state.authWarnings.length) return "";
+  return `<div class="auth-warning"><strong>Попередження Supabase:</strong><br>${state.authWarnings.map(esc).join("<br>")}</div>`;
 }
 
 /* ---------- Company profile ---------- */
@@ -2025,9 +2174,13 @@ function render() {
   const selEnd = active && active.selectionEnd;
 
   const app = document.getElementById("app");
+  if (!state.authInitialized || !state.authUser) {
+    app.innerHTML = renderAuthScreen();
+    return;
+  }
   app.innerHTML = `
     ${renderSidebar()}
-    <div class="main">${renderPage()}</div>
+    <div class="main">${renderAuthTopbar()}${renderAuthWarnings()}${renderPage()}</div>
     ${renderBottomBar()}
     ${renderModal()}
   `;
@@ -4384,7 +4537,7 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
@@ -4400,6 +4553,7 @@ Object.assign(window, { setNav, selectObject, selectRoom, selectZone, setQuick, 
 
 applyTheme(state.data.settings.theme);
 render();
+initAuth();
 </script>
 </body>
 </html>
