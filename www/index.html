@@ -674,6 +674,8 @@ let state = {
   authWarnings: [],
   authMessage: "",
   authMessageType: "",
+  supabaseStatus: { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" },
+  supabaseImportPreviewReport: "",
 };
 
 function migrateData(data) {
@@ -803,6 +805,7 @@ async function initAuth() {
 supabaseClient.auth.onAuthStateChange(async (_event, session) => {
   state.authUser = session ? session.user : null;
   state.authWarnings = [];
+  if (!state.authUser) state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
   if (state.authInitialized && state.authUser) await verifyAuthRecords();
   if (state.authInitialized) render();
 });
@@ -811,21 +814,35 @@ async function verifyAuthRecords() {
   const user = state.authUser;
   if (!user) return;
   const warnings = [];
+  const status = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
   const { data: profile, error: profileError } = await supabaseClient
     .from("profiles")
     .select("id")
     .eq("id", user.id)
     .maybeSingle();
-  if (profileError) warnings.push(`Не вдалося перевірити profiles: ${profileError.message}`);
-  else if (!profile) warnings.push("Профіль користувача ще не знайдено у таблиці profiles.");
+  if (profileError) {
+    status.profileError = profileError.message;
+    warnings.push(`Не вдалося перевірити profiles: ${profileError.message}`);
+  } else if (!profile) {
+    warnings.push("Профіль користувача ще не знайдено у таблиці profiles.");
+  } else {
+    status.profileFound = true;
+  }
 
   const { data: appSettings, error: appSettingsError } = await supabaseClient
     .from("app_settings")
     .select("owner_id")
     .eq("owner_id", user.id)
     .maybeSingle();
-  if (appSettingsError) warnings.push(`Не вдалося перевірити app_settings: ${appSettingsError.message}`);
-  else if (!appSettings) warnings.push("Налаштування застосунку ще не знайдено у таблиці app_settings.");
+  if (appSettingsError) {
+    status.appSettingsError = appSettingsError.message;
+    warnings.push(`Не вдалося перевірити app_settings: ${appSettingsError.message}`);
+  } else if (!appSettings) {
+    warnings.push("Налаштування застосунку ще не знайдено у таблиці app_settings.");
+  } else {
+    status.appSettingsFound = true;
+  }
+  state.supabaseStatus = status;
   state.authWarnings = warnings;
 }
 
@@ -871,6 +888,7 @@ async function signOut() {
   await supabaseClient.auth.signOut();
   state.authUser = null;
   state.authWarnings = [];
+  state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
   render();
 }
 
@@ -3236,6 +3254,62 @@ function workerPaymentRowHtml(p, w) {
   </div>`;
 }
 
+function countLocalDataForSupabase(data) {
+  const clients = Array.isArray(data && data.clients) ? data.clients : [];
+  const objects = Array.isArray(data && data.objects) ? data.objects : [];
+  let rooms = 0;
+  let works = 0;
+  objects.forEach(obj => {
+    const objRooms = Array.isArray(obj.rooms) ? obj.rooms : [];
+    rooms += objRooms.length;
+    objRooms.forEach(room => {
+      works += Array.isArray(room.works) ? room.works.length : 0;
+    });
+  });
+  return { clients: clients.length, objects: objects.length, rooms, works };
+}
+
+function checkLocalDataForSupabase() {
+  const counts = countLocalDataForSupabase(state.data);
+  state.supabaseImportPreviewReport = `Готово до імпорту: ${counts.clients} замовників, ${counts.objects} об’єктів, ${counts.rooms} кімнат, ${counts.works} робіт.`;
+  render();
+}
+
+function supabaseStatusRowHtml(label, ok, detail) {
+  return `<div class="work-row" style="align-items:center;">
+    <div style="flex:1"><div class="w-name">${esc(label)}</div>${detail ? `<div class="w-meta">${esc(detail)}</div>` : ""}</div>
+    <span class="pct-pill mono" style="font-size:10px;padding:3px 8px;${ok ? 'background:var(--green);color:#06120B;' : ''}">${ok ? "Так" : "Ні"}</span>
+  </div>`;
+}
+
+function renderSupabaseCloudSettings() {
+  const counts = countLocalDataForSupabase(state.data);
+  const email = state.authUser && state.authUser.email ? state.authUser.email : "Не увійшли";
+  const status = state.supabaseStatus || {};
+  return `
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="group-label" style="margin-top:0;">Supabase / Хмарне збереження</div>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
+        Безпечний попередній перегляд: цей блок лише читає поточний стан і локальні дані з браузера. Запису або міграції в Supabase немає.
+      </p>
+      <div class="field"><label>Поточний email користувача</label><input value="${esc(email)}" readonly></div>
+      <div style="display:grid;gap:8px;margin-bottom:14px;">
+        ${supabaseStatusRowHtml("Користувач увійшов", !!state.authUser, state.authUser ? "Supabase Auth активний." : "Увійдіть через Supabase Auth.")}
+        ${supabaseStatusRowHtml("profiles знайдено", !!status.profileFound, status.profileError || "Перевіряється за id поточного користувача.")}
+        ${supabaseStatusRowHtml("app_settings знайдено", !!status.appSettingsFound, status.appSettingsError || "Перевіряється за owner_id поточного користувача.")}
+      </div>
+      <div class="stats-grid" style="margin-bottom:14px;">
+        <div class="mini-stat"><div class="mini-stat-label">Замовники</div><div class="mini-stat-val mono">${counts.clients}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">Об’єкти</div><div class="mini-stat-val mono">${counts.objects}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">Кімнати</div><div class="mini-stat-val mono">${counts.rooms}</div></div>
+        <div class="mini-stat"><div class="mini-stat-label">Роботи</div><div class="mini-stat-val mono">${counts.works}</div></div>
+      </div>
+      <button class="ghost-btn" onclick="checkLocalDataForSupabase()">Перевірити локальні дані</button>
+      ${state.supabaseImportPreviewReport ? `<div class="auth-message ok" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
+    </div>
+  `;
+}
+
 function renderSettings() {
   const cp = state.data.companyProfile || {};
   return `
@@ -3274,6 +3348,7 @@ function renderSettings() {
       <div class="field"><label>Валюта матеріалів за замовчуванням</label><select onchange="updateSettingsCurrency('materialsCurrency', this.value)">${currencyOptionsHtml(state.data.settings.materialsCurrency)}</select></div>
       <div class="field"><label>Валюта оплати працівникам за замовчуванням</label><select onchange="updateSettingsCurrency('workersCurrency', this.value)">${currencyOptionsHtml(state.data.settings.workersCurrency)}</select></div>
     </div>
+    ${renderSupabaseCloudSettings()}
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Резервне копіювання</div>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
@@ -4537,7 +4612,7 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
