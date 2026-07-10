@@ -679,6 +679,10 @@ let state = {
   supabaseImportInProgress: false,
   supabaseImportBlocked: false,
   supabaseCloudPreview: { loading: false, report: "", error: "", objects: [] },
+  supabaseReadMode: false,
+  supabaseReadData: null,
+  supabaseReadLoading: false,
+  supabaseReadError: "",
 };
 
 function migrateData(data) {
@@ -811,6 +815,7 @@ supabaseClient.auth.onAuthStateChange(async (_event, session) => {
   if (!state.authUser) {
     state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
     state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
+    disableSupabaseReadMode(false);
   }
   if (state.authInitialized && state.authUser) await verifyAuthRecords();
   if (state.authInitialized) render();
@@ -896,6 +901,7 @@ async function signOut() {
   state.authWarnings = [];
   state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
   state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
+  disableSupabaseReadMode(false);
   render();
 }
 
@@ -2268,6 +2274,7 @@ function objRowHtml(o) {
 }
 
 function renderObjects() {
+  if (state.supabaseReadMode) return renderSupabaseReadObjectsList();
   const obj = getObj();
   if (obj) return renderObjectDetail(obj);
   return renderObjectsList();
@@ -3308,6 +3315,169 @@ async function insertSupabaseRows(tableName, rows) {
   return data || [];
 }
 
+
+function getSupabaseRoomId(row) {
+  return row && (row.id || row.room_id || row.roomId);
+}
+
+function getSupabaseRelatedRoomId(row) {
+  return row && (row.room_id || row.roomId || row.room);
+}
+
+function buildSupabaseReadData(clients, objects, rooms, works) {
+  const clientsById = new Map();
+  (clients || []).forEach(client => {
+    if (client && client.id) clientsById.set(client.id, {
+      id: client.id,
+      name: client.name || client.title || "Без назви",
+      phone: client.phone || "",
+      email: client.email || "",
+      address: client.address || "",
+      note: client.note || client.notes || "",
+    });
+  });
+
+  const roomsByObjectId = new Map();
+  const roomsById = new Map();
+  (rooms || []).forEach(room => {
+    const roomId = getSupabaseRoomId(room) || crypto.randomUUID();
+    const objectId = getSupabaseRelatedObjectId(room);
+    const normalizedRoom = {
+      id: roomId,
+      objectId,
+      name: room.name || room.title || "Без назви",
+      sortOrder: Number(room.sort_order || room.sortOrder || 0) || 0,
+      works: [],
+    };
+    roomsById.set(roomId, normalizedRoom);
+    if (!objectId) return;
+    if (!roomsByObjectId.has(objectId)) roomsByObjectId.set(objectId, []);
+    roomsByObjectId.get(objectId).push(normalizedRoom);
+  });
+
+  (works || []).forEach(work => {
+    const roomId = getSupabaseRelatedRoomId(work);
+    const objectId = getSupabaseRelatedObjectId(work);
+    let targetRoom = roomId ? roomsById.get(roomId) : null;
+    if (!targetRoom && objectId) {
+      if (!roomsByObjectId.has(objectId)) roomsByObjectId.set(objectId, []);
+      targetRoom = roomsByObjectId.get(objectId)[0];
+      if (!targetRoom) {
+        targetRoom = { id: `supabase-room-${objectId}`, objectId, name: "Без кімнати", sortOrder: 999999, works: [] };
+        roomsByObjectId.get(objectId).push(targetRoom);
+      }
+    }
+    if (!targetRoom) return;
+    targetRoom.works.push({
+      id: work.id || crypto.randomUUID(),
+      name: work.title || work.name || "Без назви",
+      unit: work.unit || "",
+      qty: Number(work.quantity || work.qty || 0) || 0,
+      price: Number(work.price || 0) || 0,
+      done: !!work.done,
+      note: work.notes || work.note || "",
+    });
+  });
+
+  const normalizedObjects = (objects || []).map(obj => {
+    const objectId = getSupabaseObjectId(obj) || crypto.randomUUID();
+    const objectRooms = (roomsByObjectId.get(objectId) || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+    return {
+      id: objectId,
+      name: obj.name || obj.title || "Без назви",
+      address: obj.address || "—",
+      status: obj.status || "—",
+      clientId: obj.client_id || obj.clientId || null,
+      client: clientsById.get(obj.client_id || obj.clientId || null) || null,
+      rooms: objectRooms,
+    };
+  });
+
+  return { clients: Array.from(clientsById.values()), objects: normalizedObjects };
+}
+
+async function enableSupabaseReadMode() {
+  const user = state.authUser;
+  if (!user) {
+    state.supabaseReadMode = false;
+    state.supabaseReadData = null;
+    state.supabaseReadLoading = false;
+    state.supabaseReadError = "Помилка хмарного перегляду Supabase: увійдіть у Supabase перед увімкненням хмарного перегляду.";
+    render();
+    return;
+  }
+
+  const ownerId = user.id;
+  state.supabaseReadLoading = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const [clients, objects, rooms, works] = await Promise.all([
+      readSupabaseRows("clients", ownerId),
+      readSupabaseRows("objects", ownerId),
+      readSupabaseRows("object_rooms", ownerId),
+      readSupabaseRows("works", ownerId),
+    ]);
+    state.supabaseReadData = buildSupabaseReadData(clients, objects, rooms, works);
+    state.supabaseReadMode = true;
+    state.supabaseReadLoading = false;
+    state.supabaseReadError = "";
+    state.selectedObjId = null;
+    state.openActionMenuId = null;
+  } catch (error) {
+    state.supabaseReadMode = false;
+    state.supabaseReadData = null;
+    state.supabaseReadLoading = false;
+    state.supabaseReadError = `Помилка хмарного перегляду Supabase: ${error.message || error}`;
+    console.error("Supabase read mode failed", error);
+  }
+  render();
+}
+
+function disableSupabaseReadMode(shouldRender) {
+  state.supabaseReadMode = false;
+  state.supabaseReadData = null;
+  state.supabaseReadLoading = false;
+  state.supabaseReadError = "";
+  state.openActionMenuId = null;
+  if (shouldRender !== false) render();
+}
+
+function supabaseObjectWorksCount(obj) {
+  return (obj.rooms || []).reduce((sum, room) => sum + ((room.works || []).length), 0);
+}
+
+function supabaseReadObjRowHtml(obj) {
+  const statusLabel = OBJ_STATUS[obj.status] ? OBJ_STATUS[obj.status].label : (obj.status || "—");
+  return `<div class="obj-row" style="cursor:default;">
+    <div class="obj-row-icon">${svgIcon("objects", 18)}</div>
+    <div style="flex:1;min-width:0;">
+      <div class="obj-row-name">${esc(obj.name)}</div>
+      <div class="obj-row-addr">📍 ${esc(obj.address)}</div>
+      <div class="obj-row-status">${esc(statusLabel)}</div>
+      <div class="obj-row-addr">Кімнат: ${obj.rooms.length} · Робіт: ${supabaseObjectWorksCount(obj)}</div>
+    </div>
+  </div>`;
+}
+
+function renderSupabaseReadObjectsList() {
+  const data = state.supabaseReadData || { objects: [] };
+  const objects = Array.isArray(data.objects) ? data.objects : [];
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="eyebrow">Об'єкти</div><div class="h1">Хмарний перегляд Supabase</div></div>
+        <div class="count-badge">${objects.length}</div>
+      </div>
+      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний перегляд Supabase. Дані тільки читаються.</div>
+      <div class="empty-slot" style="margin-bottom:12px;">Редагування в хмарному режимі ще не увімкнено.</div>
+      ${state.supabaseReadError ? `<div class="auth-message err" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+      ${objects.map(supabaseReadObjRowHtml).join("") || `<div class="empty-slot">У Supabase немає обʼєктів для поточного користувача.</div>`}
+    </div>
+  `;
+}
+
 function getSupabaseObjectId(row) {
   return row && (row.id || row.object_id || row.objectId);
 }
@@ -3587,9 +3757,13 @@ function renderSupabaseCloudSettings() {
       <div class="btn-row">
         <button class="ghost-btn" onclick="checkLocalDataForSupabase()">Перевірити локальні дані</button>
         <button class="ghost-btn" onclick="checkSupabaseCloudData()" ${(state.supabaseCloudPreview && state.supabaseCloudPreview.loading) ? "disabled" : ""}>${state.supabaseCloudPreview && state.supabaseCloudPreview.loading ? "Перевіряємо..." : "Перевірити хмарні дані"}</button>
+        <button class="ghost-btn" onclick="enableSupabaseReadMode()" ${(state.supabaseReadLoading || state.supabaseReadMode) ? "disabled" : ""}>${state.supabaseReadLoading ? "Завантажуємо..." : "Увімкнути хмарний перегляд"}</button>
+        <button class="ghost-btn" onclick="disableSupabaseReadMode()" ${(!state.supabaseReadMode && !state.supabaseReadData && !state.supabaseReadError) ? "disabled" : ""}>Вимкнути хмарний перегляд</button>
         <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${(state.supabaseImportInProgress || state.supabaseImportBlocked) ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase"}</button>
       </div>
       ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
+      ${state.supabaseReadError ? `<div class="auth-message err" style="margin-top:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+      ${state.supabaseReadMode ? `<div class="auth-message ok" style="margin-top:12px;">Хмарний перегляд Supabase увімкнено. Відкрийте сторінку Обʼєкти.</div>` : ""}
       ${renderSupabaseCloudPreview()}
     </div>
   `;
