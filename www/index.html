@@ -681,6 +681,7 @@ let state = {
   supabaseCloudPreview: { loading: false, report: "", error: "", objects: [] },
   supabaseReadMode: false,
   supabaseReadData: null,
+  supabaseSelectedObjId: null,
   supabaseReadLoading: false,
   supabaseReadError: "",
 };
@@ -2274,6 +2275,7 @@ function objRowHtml(o) {
 }
 
 function renderObjects() {
+  if (state.supabaseReadMode && state.supabaseSelectedObjId) return renderSupabaseReadObjectDetail();
   if (state.supabaseReadMode) return renderSupabaseReadObjectsList();
   const obj = getObj();
   if (obj) return renderObjectDetail(obj);
@@ -3374,7 +3376,9 @@ function buildSupabaseReadData(clients, objects, rooms, works) {
       unit: work.unit || "",
       qty: Number(work.quantity || work.qty || 0) || 0,
       price: Number(work.price || 0) || 0,
+      currency: work.currency || work.price_currency || work.priceCurrency || "",
       done: !!work.done,
+      status: work.status || "",
       note: work.notes || work.note || "",
     });
   });
@@ -3401,6 +3405,7 @@ async function enableSupabaseReadMode() {
   if (!user) {
     state.supabaseReadMode = false;
     state.supabaseReadData = null;
+    state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "Помилка хмарного перегляду Supabase: увійдіть у Supabase перед увімкненням хмарного перегляду.";
     render();
@@ -3423,11 +3428,13 @@ async function enableSupabaseReadMode() {
     state.supabaseReadMode = true;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "";
+    state.supabaseSelectedObjId = null;
     state.selectedObjId = null;
     state.openActionMenuId = null;
   } catch (error) {
     state.supabaseReadMode = false;
     state.supabaseReadData = null;
+    state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = `Помилка хмарного перегляду Supabase: ${error.message || error}`;
     console.error("Supabase read mode failed", error);
@@ -3438,6 +3445,7 @@ async function enableSupabaseReadMode() {
 function disableSupabaseReadMode(shouldRender) {
   state.supabaseReadMode = false;
   state.supabaseReadData = null;
+  state.supabaseSelectedObjId = null;
   state.supabaseReadLoading = false;
   state.supabaseReadError = "";
   state.openActionMenuId = null;
@@ -3450,7 +3458,7 @@ function supabaseObjectWorksCount(obj) {
 
 function supabaseReadObjRowHtml(obj) {
   const statusLabel = OBJ_STATUS[obj.status] ? OBJ_STATUS[obj.status].label : (obj.status || "—");
-  return `<div class="obj-row" style="cursor:default;">
+  return `<div class="obj-row" onclick="selectSupabaseReadObject(${esc(JSON.stringify(obj.id))})" title="Відкрити хмарний обʼєкт">
     <div class="obj-row-icon">${svgIcon("objects", 18)}</div>
     <div style="flex:1;min-width:0;">
       <div class="obj-row-name">${esc(obj.name)}</div>
@@ -3459,6 +3467,97 @@ function supabaseReadObjRowHtml(obj) {
       <div class="obj-row-addr">Кімнат: ${obj.rooms.length} · Робіт: ${supabaseObjectWorksCount(obj)}</div>
     </div>
   </div>`;
+}
+
+function selectSupabaseReadObject(id) {
+  state.supabaseSelectedObjId = id;
+  state.openActionMenuId = null;
+  render();
+}
+
+function backToSupabaseReadObjects() {
+  state.supabaseSelectedObjId = null;
+  render();
+}
+
+function getSupabaseReadObject() {
+  const data = state.supabaseReadData || { objects: [] };
+  const objects = Array.isArray(data.objects) ? data.objects : [];
+  return objects.find(obj => obj.id === state.supabaseSelectedObjId) || null;
+}
+
+function supabaseWorkDone(work) {
+  const status = String(work.status || "").toLowerCase();
+  return !!work.done || status === "done" || status === "completed" || status === "complete";
+}
+
+function supabaseRoomProgress(room) {
+  const works = Array.isArray(room.works) ? room.works : [];
+  if (!works.length) return 0;
+  return Math.round(works.filter(supabaseWorkDone).length / works.length * 100);
+}
+
+function supabaseReadWorkHtml(work) {
+  const done = supabaseWorkDone(work);
+  const currency = work.currency ? ` ${esc(work.currency)}` : "";
+  return `<div class="work-row">
+    <div class="check ${done ? "done" : ""}" style="cursor:default;">✓</div>
+    <div style="flex:1;min-width:0;">
+      <div class="w-name ${done ? "done" : ""}">${esc(work.name)}</div>
+      <div class="w-meta">
+        <span>К-сть: ${esc(work.qty)}</span>
+        <span>Од.: ${esc(work.unit || "—")}</span>
+        <span>Ціна: ${(Number(work.price) || 0).toFixed(2)}${currency}</span>
+        <span>Статус: ${done ? "виконано" : "не виконано"}</span>
+      </div>
+      ${work.note ? `<div class="obj-row-addr" style="margin-top:6px;">Нотатка: ${esc(work.note)}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function supabaseReadRoomHtml(room) {
+  const works = Array.isArray(room.works) ? room.works : [];
+  const doneCount = works.filter(supabaseWorkDone).length;
+  const progress = supabaseRoomProgress(room);
+  return `<div class="room-block">
+    <div class="room-head">
+      <div>
+        <div class="room-title">${esc(room.name)}</div>
+        <div class="room-stats">Робіт: ${works.length} · Виконано: ${doneCount} · Прогрес: ${progress}%</div>
+      </div>
+    </div>
+    <div class="obj-row-progress" style="margin-bottom:12px;">
+      <div class="obj-row-progress-track"><div class="obj-row-progress-fill" style="width:${progress}%"></div></div>
+    </div>
+    ${works.map(supabaseReadWorkHtml).join("") || `<div class="empty-slot">У кімнаті немає робіт.</div>`}
+  </div>`;
+}
+
+function renderSupabaseReadObjectDetail() {
+  const obj = getSupabaseReadObject();
+  if (!obj) {
+    state.supabaseSelectedObjId = null;
+    return renderSupabaseReadObjectsList();
+  }
+  const statusLabel = OBJ_STATUS[obj.status] ? OBJ_STATUS[obj.status].label : (obj.status || "—");
+  const rooms = Array.isArray(obj.rooms) ? obj.rooms : [];
+  return `
+    <div class="panel">
+      <button class="back-link" onclick="backToSupabaseReadObjects()">← До хмарного списку</button>
+      <div class="panel-head">
+        <div>
+          <div class="eyebrow">Хмарний обʼєкт Supabase</div>
+          <div class="h1">${esc(obj.name)}</div>
+        </div>
+        <div class="count-badge">${supabaseObjectWorksCount(obj)}</div>
+      </div>
+      <div class="obj-row-addr" style="margin-bottom:6px;">📍 ${esc(obj.address)}</div>
+      <div class="obj-row-status" style="margin-bottom:12px;">${esc(statusLabel)}</div>
+      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний перегляд Supabase. Дані тільки читаються.</div>
+      <div class="empty-slot" style="margin-bottom:12px;">Редагування в хмарному режимі ще не увімкнено.</div>
+      ${rooms.map(supabaseReadRoomHtml).join("") || `<div class="empty-slot">У хмарного обʼєкта немає кімнат.</div>`}
+    </div>
+  `;
 }
 
 function renderSupabaseReadObjectsList() {
