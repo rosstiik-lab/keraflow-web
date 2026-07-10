@@ -689,6 +689,9 @@ let state = {
   supabaseRoomCreating: false,
   supabaseRoomSavingId: null,
   supabaseRoomDeletingIds: {},
+  supabaseObjectCreating: false,
+  supabaseObjectSavingId: null,
+  supabaseObjectDeletingIds: {},
   supabaseSelectedObjId: null,
   supabaseReadLoading: false,
   supabaseReadError: "",
@@ -3399,6 +3402,7 @@ function buildSupabaseReadData(clients, objects, rooms, works) {
       name: obj.name || obj.title || "Без назви",
       address: obj.address || "—",
       status: obj.status || "—",
+      notes: obj.notes || obj.note || "",
       clientId: obj.client_id || obj.clientId || null,
       client: clientsById.get(obj.client_id || obj.clientId || null) || null,
       rooms: objectRooms,
@@ -3419,6 +3423,9 @@ async function enableSupabaseReadMode() {
     state.supabaseRoomCreating = false;
     state.supabaseRoomSavingId = null;
     state.supabaseRoomDeletingIds = {};
+    state.supabaseObjectCreating = false;
+    state.supabaseObjectSavingId = null;
+    state.supabaseObjectDeletingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "Помилка хмарного перегляду Supabase: увійдіть у Supabase перед увімкненням хмарного перегляду.";
@@ -3445,6 +3452,9 @@ async function enableSupabaseReadMode() {
     state.supabaseRoomCreating = false;
     state.supabaseRoomSavingId = null;
     state.supabaseRoomDeletingIds = {};
+    state.supabaseObjectCreating = false;
+    state.supabaseObjectSavingId = null;
+    state.supabaseObjectDeletingIds = {};
     state.supabaseReadMode = true;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "";
@@ -3460,6 +3470,9 @@ async function enableSupabaseReadMode() {
     state.supabaseRoomCreating = false;
     state.supabaseRoomSavingId = null;
     state.supabaseRoomDeletingIds = {};
+    state.supabaseObjectCreating = false;
+    state.supabaseObjectSavingId = null;
+    state.supabaseObjectDeletingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = `Помилка хмарного перегляду Supabase: ${error.message || error}`;
@@ -3477,6 +3490,9 @@ function disableSupabaseReadMode(shouldRender) {
   state.supabaseRoomCreating = false;
   state.supabaseRoomSavingId = null;
   state.supabaseRoomDeletingIds = {};
+  state.supabaseObjectCreating = false;
+  state.supabaseObjectSavingId = null;
+  state.supabaseObjectDeletingIds = {};
   state.supabaseSelectedObjId = null;
   state.supabaseReadLoading = false;
   state.supabaseReadError = "";
@@ -3490,6 +3506,9 @@ function supabaseObjectWorksCount(obj) {
 
 function supabaseReadObjRowHtml(obj) {
   const statusLabel = OBJ_STATUS[obj.status] ? OBJ_STATUS[obj.status].label : (obj.status || "—");
+  const saving = state.supabaseObjectSavingId === obj.id;
+  const deleting = !!state.supabaseObjectDeletingIds[obj.id];
+  const disabled = saving || deleting;
   return `<div class="obj-row" onclick="selectSupabaseReadObject(${esc(JSON.stringify(obj.id))})" title="Відкрити хмарний обʼєкт">
     <div class="obj-row-icon">${svgIcon("objects", 18)}</div>
     <div style="flex:1;min-width:0;">
@@ -3497,6 +3516,10 @@ function supabaseReadObjRowHtml(obj) {
       <div class="obj-row-addr">📍 ${esc(obj.address)}</div>
       <div class="obj-row-status">${esc(statusLabel)}</div>
       <div class="obj-row-addr">Кімнат: ${obj.rooms.length} · Робіт: ${supabaseObjectWorksCount(obj)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+        <button class="ghost-btn" ${disabled ? "disabled" : `onclick="event.stopPropagation(); openModal('supabaseObject', ${esc(JSON.stringify(obj.id))})"`}>${saving ? "Зберігаємо..." : "Редагувати"}</button>
+        <button class="ghost-btn" ${disabled ? "disabled" : `onclick="event.stopPropagation(); deleteSupabaseObject(${esc(JSON.stringify(obj.id))})"`}>${deleting ? "Видаляємо..." : "Видалити"}</button>
+      </div>
     </div>
   </div>`;
 }
@@ -3516,6 +3539,12 @@ function getSupabaseReadObject() {
   const data = state.supabaseReadData || { objects: [] };
   const objects = Array.isArray(data.objects) ? data.objects : [];
   return objects.find(obj => obj.id === state.supabaseSelectedObjId) || null;
+}
+
+function findSupabaseReadObject(objectId) {
+  const data = state.supabaseReadData || { objects: [] };
+  const objects = Array.isArray(data.objects) ? data.objects : [];
+  return objects.find(obj => obj.id === objectId) || null;
 }
 
 function findSupabaseReadRoom(roomId) {
@@ -3772,10 +3801,10 @@ function renderSupabaseReadObjectsList() {
         <div><div class="eyebrow">Об'єкти</div><div class="h1">Хмарний перегляд Supabase</div></div>
         <div class="count-badge">${objects.length}</div>
       </div>
-      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний перегляд Supabase. Дані тільки читаються.</div>
-      <div class="empty-slot" style="margin-bottom:12px;">Редагування в хмарному режимі ще не увімкнено.</div>
+      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний режим Supabase. Можна керувати обʼєктами без перезавантаження сторінки.</div>
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       ${objects.map(supabaseReadObjRowHtml).join("") || `<div class="empty-slot">У Supabase немає обʼєктів для поточного користувача.</div>`}
+      <button class="dashed-btn" ${state.supabaseObjectCreating ? "disabled" : ""} onclick="openModal('supabaseObject')">${state.supabaseObjectCreating ? "Створюємо..." : "+ Додати обʼєкт"}</button>
     </div>
   `;
 }
@@ -4143,6 +4172,33 @@ function renderModal() {
   if (!state.modal) return "";
   const t = state.modal.type;
   let body = "";
+  if (t === "supabaseObject") {
+    const editing = state.modal.id ? findSupabaseReadObject(state.modal.id) : null;
+    const creating = !editing && !!state.supabaseObjectCreating;
+    const saving = !!(editing && state.supabaseObjectSavingId === editing.id);
+    const disabled = (creating || saving) ? "disabled" : "";
+    const selectedStatus = editing ? (editing.status || "active") : "active";
+    const statusOptions = Object.entries(OBJ_STATUS).map(([key, item]) => `<option value="${esc(key)}" ${selectedStatus === key ? "selected" : ""}>${esc(item.label || key)}</option>`).join("");
+    body = `
+    <h3>${editing ? "Редагувати обʼєкт Supabase" : "Новий обʼєкт Supabase"}</h3>
+    ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+    ${(!state.modal.id || editing) ? `
+      <div class="field"><label>name</label><input id="supabase-object-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
+      <div class="field"><label>address</label><input id="supabase-object-address" value="${esc(editing ? editing.address : "")}" ${disabled}></div>
+      <div class="field"><label>status</label><select id="supabase-object-status" ${disabled}>${statusOptions}</select></div>
+      <div class="field"><label>notes</label><textarea id="supabase-object-notes" rows="3" ${disabled}>${esc(editing ? (editing.notes || "") : "")}</textarea></div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
+        <button class="amber-btn" onclick="${editing ? "submitSupabaseObjectEdit()" : "submitSupabaseNewObject()"}" ${disabled}>${creating ? "Створюємо..." : (saving ? "Зберігаємо..." : "Зберегти")}</button>
+      </div>
+    ` : `
+      <div class="empty-slot">Обʼєкт Supabase не знайдено.</div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+      </div>
+    `}
+    `;
+  }
   if (t === "supabaseWork") {
     const editing = state.modal.id ? findSupabaseReadWork(state.modal.id) : null;
     const saving = !!(editing && state.supabaseWorkSavingId === editing.id);
@@ -5305,6 +5361,153 @@ function renderModal() {
 
 function val(id) { return document.getElementById(id)?.value.trim() || ""; }
 
+async function submitSupabaseNewObject() {
+  const user = state.authUser;
+  if (!state.supabaseReadMode || !user) {
+    state.supabaseReadError = "Помилка створення обʼєкта Supabase: увійдіть у Supabase і відкрийте хмарний режим.";
+    render();
+    return;
+  }
+  if (state.supabaseObjectCreating) return;
+
+  const name = val("supabase-object-name");
+  if (!name) return;
+  const address = val("supabase-object-address");
+  const status = val("supabase-object-status") || "active";
+  const notes = val("supabase-object-notes");
+
+  state.supabaseObjectCreating = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("objects")
+      .insert({
+        owner_id: user.id,
+        name,
+        address,
+        status,
+        notes,
+        archived: false
+      })
+      .select("id,name,address,status,notes")
+      .single();
+    if (error) throw error;
+
+    if (!state.supabaseReadData) state.supabaseReadData = { clients: [], objects: [] };
+    if (!Array.isArray(state.supabaseReadData.objects)) state.supabaseReadData.objects = [];
+    state.supabaseReadData.objects.push({
+      id: data.id,
+      name: data.name || name,
+      address: data.address || address || "—",
+      status: data.status || status,
+      notes: data.notes || notes || "",
+      clientId: null,
+      client: null,
+      rooms: []
+    });
+    state.modal = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка створення обʼєкта Supabase: ${error.message || error}`;
+    console.error("Supabase object create failed", error);
+  } finally {
+    state.supabaseObjectCreating = false;
+    render();
+  }
+}
+
+async function submitSupabaseObjectEdit() {
+  const objectId = state.modal && state.modal.id;
+  const user = state.authUser;
+  const object = objectId ? findSupabaseReadObject(objectId) : null;
+  if (!state.supabaseReadMode || !user || !objectId || !object) {
+    state.supabaseReadError = "Помилка редагування обʼєкта Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть обʼєкт.";
+    render();
+    return;
+  }
+  if (state.supabaseObjectSavingId === objectId) return;
+
+  const name = val("supabase-object-name");
+  if (!name) return;
+  const address = val("supabase-object-address");
+  const status = val("supabase-object-status") || "active";
+  const notes = val("supabase-object-notes");
+
+  state.supabaseObjectSavingId = objectId;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("objects")
+      .update({ name, address, status, notes })
+      .eq("id", objectId)
+      .eq("owner_id", user.id)
+      .select("id,name,address,status,notes")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("обʼєкт не знайдено або він не належить поточному користувачу");
+
+    object.name = data.name || name;
+    object.address = data.address || address || "—";
+    object.status = data.status || status;
+    object.notes = data.notes || notes || "";
+    state.modal = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка редагування обʼєкта Supabase: ${error.message || error}`;
+    console.error("Supabase object edit failed", error);
+  } finally {
+    state.supabaseObjectSavingId = null;
+    render();
+  }
+}
+
+async function deleteSupabaseObject(objectId) {
+  const user = state.authUser;
+  const object = objectId ? findSupabaseReadObject(objectId) : null;
+  const rooms = object && Array.isArray(object.rooms) ? object.rooms : [];
+  if (!state.supabaseReadMode || !user || !objectId || !object) {
+    state.supabaseReadError = "Помилка видалення обʼєкта Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть обʼєкт.";
+    render();
+    return;
+  }
+  if (state.supabaseObjectDeletingIds[objectId]) return;
+  if (rooms.length > 0) {
+    state.supabaseReadError = "Спочатку видаліть кімнати в цьому обʼєкті.";
+    render();
+    return;
+  }
+
+  const confirmed = confirm("Видалити цей обʼєкт з Supabase?");
+  if (!confirmed) return;
+
+  state.supabaseObjectDeletingIds[objectId] = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { error } = await supabaseClient
+      .from("objects")
+      .delete()
+      .eq("id", objectId)
+      .eq("owner_id", user.id);
+    if (error) throw error;
+
+    const readData = state.supabaseReadData || { objects: [] };
+    if (Array.isArray(readData.objects)) {
+      readData.objects = readData.objects.filter(item => item.id !== objectId);
+    }
+    if (state.supabaseSelectedObjId === objectId) state.supabaseSelectedObjId = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка видалення обʼєкта Supabase: ${error.message || error}`;
+    console.error("Supabase object delete failed", error);
+  } finally {
+    delete state.supabaseObjectDeletingIds[objectId];
+    render();
+  }
+}
+
 async function submitSupabaseNewRoom() {
   const user = state.authUser;
   const object = getSupabaseReadObject();
@@ -5661,7 +5864,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseRoom, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
