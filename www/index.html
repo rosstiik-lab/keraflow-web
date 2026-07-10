@@ -676,6 +676,8 @@ let state = {
   authMessageType: "",
   supabaseStatus: { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" },
   supabaseImportPreviewReport: "",
+  supabaseImportInProgress: false,
+  supabaseImportBlocked: false,
 };
 
 function migrateData(data) {
@@ -3275,6 +3277,175 @@ function checkLocalDataForSupabase() {
   render();
 }
 
+function showSupabaseImportMessage(message, type = "ok") {
+  state.supabaseImportPreviewReport = message;
+  state.authMessage = message;
+  state.authMessageType = type;
+  alert(message);
+}
+
+async function countSupabaseRows(tableName, ownerId) {
+  const { count, error } = await supabaseClient
+    .from(tableName)
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", ownerId);
+  if (error) throw error;
+  return count || 0;
+}
+
+async function insertSupabaseRows(tableName, rows) {
+  if (!rows.length) return [];
+  const { data, error } = await supabaseClient
+    .from(tableName)
+    .insert(rows)
+    .select("id");
+  if (error) throw error;
+  return data || [];
+}
+
+async function importBasicLocalDataToSupabase() {
+  if (state.supabaseImportInProgress || state.supabaseImportBlocked) return;
+
+  const user = state.authUser;
+  if (!user) {
+    showSupabaseImportMessage("Увійдіть у Supabase перед імпортом.", "error");
+    render();
+    return;
+  }
+
+  const ownerId = user.id;
+  let hasWrittenToSupabase = false;
+  try {
+    state.supabaseImportInProgress = true;
+    state.supabaseImportPreviewReport = "Перевіряємо Supabase перед імпортом...";
+    render();
+
+    const existingCounts = await Promise.all([
+      countSupabaseRows("clients", ownerId),
+      countSupabaseRows("objects", ownerId),
+      countSupabaseRows("object_rooms", ownerId),
+      countSupabaseRows("works", ownerId),
+    ]);
+    if (existingCounts.some(count => count > 0)) {
+      state.supabaseImportInProgress = false;
+      showSupabaseImportMessage("У Supabase вже є дані. Імпорт зупинено, щоб не створити дублікати.", "error");
+      render();
+      return;
+    }
+
+    const confirmCopy = confirm("Це скопіює локальні замовники, обʼєкти, кімнати і роботи в Supabase. localStorage залишиться без змін.");
+    const confirmStart = confirmCopy && confirm("Почати імпорт основних даних у Supabase?");
+    if (!confirmCopy || !confirmStart) {
+      state.supabaseImportInProgress = false;
+      showSupabaseImportMessage("Імпорт скасовано.", "error");
+      render();
+      return;
+    }
+
+    const clients = Array.isArray(state.data.clients) ? state.data.clients : [];
+    const objects = Array.isArray(state.data.objects) ? state.data.objects : [];
+    const clientRows = clients.map(client => ({
+      owner_id: ownerId,
+      name: client.name || "Без назви",
+      phone: client.phone || "",
+      email: client.email || "",
+      address: client.address || "",
+      note: client.note || "",
+    }));
+    const insertedClients = await insertSupabaseRows("clients", clientRows);
+    hasWrittenToSupabase = hasWrittenToSupabase || clientRows.length > 0;
+    const clientIdMap = new Map();
+    clients.forEach((client, index) => {
+      if (client && client.id && insertedClients[index]) clientIdMap.set(client.id, insertedClients[index].id);
+    });
+
+    const objectRows = objects.map(obj => ({
+      owner_id: ownerId,
+      client_id: obj.clientId && clientIdMap.has(obj.clientId) ? clientIdMap.get(obj.clientId) : null,
+      name: obj.name || "Без назви",
+      address: obj.address || "",
+      status: obj.status || "active",
+      archived: !!obj.archived,
+      start_date: obj.startDate || null,
+      end_date: obj.endDate || null,
+      notes: obj.note || obj.notes || "",
+    }));
+    const insertedObjects = await insertSupabaseRows("objects", objectRows);
+    hasWrittenToSupabase = hasWrittenToSupabase || objectRows.length > 0;
+    const objectIdMap = new Map();
+    objects.forEach((obj, index) => {
+      if (obj && obj.id && insertedObjects[index]) objectIdMap.set(obj.id, insertedObjects[index].id);
+    });
+
+    const roomSources = [];
+    objects.forEach(obj => {
+      const mappedObjectId = obj && obj.id ? objectIdMap.get(obj.id) : null;
+      if (!mappedObjectId) return;
+      (Array.isArray(obj.rooms) ? obj.rooms : []).forEach((room, index) => {
+        roomSources.push({ obj, room, index, mappedObjectId });
+      });
+    });
+    const roomRows = roomSources.map(({ room, index, mappedObjectId }) => ({
+      owner_id: ownerId,
+      object_id: mappedObjectId,
+      name: room.name || "Без назви",
+      sort_order: index,
+    }));
+    const insertedRooms = await insertSupabaseRows("object_rooms", roomRows);
+    hasWrittenToSupabase = hasWrittenToSupabase || roomRows.length > 0;
+    const roomIdMap = new Map();
+    roomSources.forEach(({ obj, room, index }, insertIndex) => {
+      const insertedRoom = insertedRooms[insertIndex];
+      if (!insertedRoom) return;
+      if (room && room.id) roomIdMap.set(room.id, insertedRoom.id);
+      if (obj && obj.id) roomIdMap.set(`${obj.id}:${index}`, insertedRoom.id);
+    });
+
+    const mainCurrency = state.data.settings.mainCurrency === "€" ? "EUR" : (state.data.settings.mainCurrency || "EUR");
+    const workRows = [];
+    objects.forEach(obj => {
+      const mappedObjectId = obj && obj.id ? objectIdMap.get(obj.id) : null;
+      if (!mappedObjectId) return;
+      (Array.isArray(obj.rooms) ? obj.rooms : []).forEach((room, roomIndex) => {
+        const mappedRoomId = room && room.id ? roomIdMap.get(room.id) : roomIdMap.get(`${obj.id}:${roomIndex}`);
+        if (!mappedRoomId) return;
+        (Array.isArray(room.works) ? room.works : []).forEach((work, index) => {
+          workRows.push({
+            owner_id: ownerId,
+            object_id: mappedObjectId,
+            room_id: mappedRoomId,
+            title: work.name || "Без назви",
+            unit: work.unit || "",
+            quantity: Number(work.qty) || 0,
+            price: Number(work.price) || 0,
+            currency: mainCurrency,
+            notes: work.note || "",
+            done: !!work.done,
+            sort_order: index,
+          });
+        });
+      });
+    });
+    await insertSupabaseRows("works", workRows);
+    hasWrittenToSupabase = hasWrittenToSupabase || workRows.length > 0;
+
+    state.supabaseImportBlocked = true;
+    state.supabaseImportInProgress = false;
+    showSupabaseImportMessage(`Імпорт завершено: ${clientRows.length} замовників, ${objectRows.length} обʼєктів, ${roomRows.length} кімнат, ${workRows.length} робіт.`, "ok");
+    render();
+  } catch (error) {
+    state.supabaseImportInProgress = false;
+    if (hasWrittenToSupabase) {
+      state.supabaseImportBlocked = true;
+      showSupabaseImportMessage("Помилка імпорту. Частина даних могла бути записана в Supabase. Повторний імпорт заблоковано, щоб не створити дублікати.", "error");
+    } else {
+      showSupabaseImportMessage(`Помилка імпорту: ${error.message || error}`, "error");
+    }
+    console.error("Supabase import failed", error);
+    render();
+  }
+}
+
 function supabaseStatusRowHtml(label, ok, detail) {
   return `<div class="work-row" style="align-items:center;">
     <div style="flex:1"><div class="w-name">${esc(label)}</div>${detail ? `<div class="w-meta">${esc(detail)}</div>` : ""}</div>
@@ -3290,7 +3461,7 @@ function renderSupabaseCloudSettings() {
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Supabase / Хмарне збереження</div>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
-        Безпечний попередній перегляд: цей блок лише читає поточний стан і локальні дані з браузера. Запису або міграції в Supabase немає.
+        Імпорт копіює локальні основні дані в Supabase через insert. localStorage залишається без змін.
       </p>
       <div class="field"><label>Поточний email користувача</label><input value="${esc(email)}" readonly></div>
       <div style="display:grid;gap:8px;margin-bottom:14px;">
@@ -3304,8 +3475,11 @@ function renderSupabaseCloudSettings() {
         <div class="mini-stat"><div class="mini-stat-label">Кімнати</div><div class="mini-stat-val mono">${counts.rooms}</div></div>
         <div class="mini-stat"><div class="mini-stat-label">Роботи</div><div class="mini-stat-val mono">${counts.works}</div></div>
       </div>
-      <button class="ghost-btn" onclick="checkLocalDataForSupabase()">Перевірити локальні дані</button>
-      ${state.supabaseImportPreviewReport ? `<div class="auth-message ok" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
+      <div class="btn-row">
+        <button class="ghost-btn" onclick="checkLocalDataForSupabase()">Перевірити локальні дані</button>
+        <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${(state.supabaseImportInProgress || state.supabaseImportBlocked) ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase"}</button>
+      </div>
+      ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
     </div>
   `;
 }
@@ -4612,7 +4786,7 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
