@@ -684,6 +684,7 @@ let state = {
   supabaseReadData: null,
   supabaseWorkUpdatingIds: {},
   supabaseWorkSavingId: null,
+  supabaseWorkCreating: false,
   supabaseSelectedObjId: null,
   supabaseReadLoading: false,
   supabaseReadError: "",
@@ -3497,6 +3498,22 @@ function getSupabaseReadObject() {
   return objects.find(obj => obj.id === state.supabaseSelectedObjId) || null;
 }
 
+function findSupabaseReadRoom(roomId) {
+  const data = state.supabaseReadData || { objects: [] };
+  const objects = Array.isArray(data.objects) ? data.objects : [];
+  for (const obj of objects) {
+    const room = (obj.rooms || []).find(item => item.id === roomId);
+    if (room) return room;
+  }
+  return null;
+}
+
+function findSupabaseReadObjectByRoomId(roomId) {
+  const data = state.supabaseReadData || { objects: [] };
+  const objects = Array.isArray(data.objects) ? data.objects : [];
+  return objects.find(obj => (obj.rooms || []).some(room => room.id === roomId)) || null;
+}
+
 function findSupabaseReadWork(workId) {
   const data = state.supabaseReadData || { objects: [] };
   const objects = Array.isArray(data.objects) ? data.objects : [];
@@ -3592,6 +3609,7 @@ function supabaseReadRoomHtml(room) {
         <div class="room-title">${esc(room.name)}</div>
         <div class="room-stats">Робіт: ${works.length} · Виконано: ${doneCount} · Прогрес: ${progress}%</div>
       </div>
+      ${state.supabaseReadMode ? `<button class="amber-btn" onclick="openModal('supabaseNewWork', ${esc(JSON.stringify(room.id))})">+ Додати роботу</button>` : ""}
     </div>
     <div class="obj-row-progress" style="margin-bottom:12px;">
       <div class="obj-row-progress-track"><div class="obj-row-progress-fill" style="width:${progress}%"></div></div>
@@ -4027,6 +4045,33 @@ function renderModal() {
       </div>
     ` : `
       <div class="empty-slot">Роботу Supabase не знайдено.</div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+      </div>
+    `}
+    `;
+  }
+  if (t === "supabaseNewWork") {
+    const room = state.modal.id ? findSupabaseReadRoom(state.modal.id) : null;
+    const creating = !!state.supabaseWorkCreating;
+    const disabled = creating ? "disabled" : "";
+    body = `
+    <h3>Нова робота Supabase</h3>
+    ${room ? `
+      ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+      <div class="field"><label>Назва</label><input id="supabase-new-work-title" ${disabled}></div>
+      <div style="display:flex;gap:10px;">
+        <div class="field" style="flex:1"><label>Кількість</label><input id="supabase-new-work-quantity" type="number" inputmode="decimal" ${disabled}></div>
+        <div class="field" style="flex:1"><label>Одиниця</label><input id="supabase-new-work-unit" ${disabled}></div>
+      </div>
+      <div class="field"><label>Ціна</label><input id="supabase-new-work-price" type="number" inputmode="decimal" ${disabled}></div>
+      <div class="field"><label>Примітка</label><textarea id="supabase-new-work-notes" rows="3" ${disabled}></textarea></div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
+        <button class="amber-btn" onclick="submitSupabaseNewWork()" ${disabled}>${creating ? "Створюємо..." : "Створити"}</button>
+      </div>
+    ` : `
+      <div class="empty-slot">Кімнату Supabase не знайдено.</div>
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()">Закрити</button>
       </div>
@@ -5120,6 +5165,72 @@ function renderModal() {
 
 function val(id) { return document.getElementById(id)?.value.trim() || ""; }
 
+async function submitSupabaseNewWork() {
+  const roomId = state.modal && state.modal.id;
+  const user = state.authUser;
+  const room = roomId ? findSupabaseReadRoom(roomId) : null;
+  const object = roomId ? findSupabaseReadObjectByRoomId(roomId) : null;
+
+  if (!state.supabaseReadMode || !user || !roomId || !room || !object) {
+    state.supabaseReadError = "Помилка створення роботи Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть кімнату.";
+    render();
+    return;
+  }
+  if (state.supabaseWorkCreating) return;
+
+  const title = val("supabase-new-work-title");
+  const quantity = Number(val("supabase-new-work-quantity")) || 0;
+  const unit = val("supabase-new-work-unit");
+  const price = Number(val("supabase-new-work-price")) || 0;
+  const notes = val("supabase-new-work-notes");
+  const currency = state.data.settings.mainCurrency === "€" ? "EUR" : (state.data.settings.mainCurrency || "EUR");
+  const sort_order = Array.isArray(room.works) ? room.works.length : 0;
+
+  state.supabaseWorkCreating = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("works")
+      .insert({
+        owner_id: user.id,
+        object_id: object.id,
+        room_id: room.id,
+        title,
+        quantity,
+        unit,
+        price,
+        currency,
+        notes,
+        done: false,
+        sort_order
+      })
+      .select("id,title,quantity,unit,price,currency,notes,done,sort_order")
+      .single();
+    if (error) throw error;
+
+    if (!Array.isArray(room.works)) room.works = [];
+    room.works.push({
+      id: data.id,
+      name: data.title,
+      qty: data.quantity,
+      unit: data.unit,
+      price: data.price,
+      currency: data.currency,
+      note: data.notes,
+      done: !!data.done
+    });
+    state.modal = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка створення роботи Supabase: ${error.message || error}`;
+    console.error("Supabase work create failed", error);
+  } finally {
+    state.supabaseWorkCreating = false;
+    render();
+  }
+}
+
 async function submitSupabaseWorkEdit() {
   const workId = state.modal && state.modal.id;
   const user = state.authUser;
@@ -5319,7 +5430,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, toggleSupabaseWorkDone, submitSupabaseWorkEdit, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
