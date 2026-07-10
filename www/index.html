@@ -678,6 +678,7 @@ let state = {
   supabaseImportPreviewReport: "",
   supabaseImportInProgress: false,
   supabaseImportBlocked: false,
+  supabaseCloudPreview: { loading: false, report: "", error: "", objects: [] },
 };
 
 function migrateData(data) {
@@ -807,7 +808,10 @@ async function initAuth() {
 supabaseClient.auth.onAuthStateChange(async (_event, session) => {
   state.authUser = session ? session.user : null;
   state.authWarnings = [];
-  if (!state.authUser) state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
+  if (!state.authUser) {
+    state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
+    state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
+  }
   if (state.authInitialized && state.authUser) await verifyAuthRecords();
   if (state.authInitialized) render();
 });
@@ -891,6 +895,7 @@ async function signOut() {
   state.authUser = null;
   state.authWarnings = [];
   state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
+  state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
   render();
 }
 
@@ -3303,6 +3308,90 @@ async function insertSupabaseRows(tableName, rows) {
   return data || [];
 }
 
+function getSupabaseObjectId(row) {
+  return row && (row.id || row.object_id || row.objectId);
+}
+
+function getSupabaseRelatedObjectId(row) {
+  return row && (row.object_id || row.objectId || row.object);
+}
+
+function normalizeSupabaseObjectPreview(objects, rooms, works) {
+  const roomCounts = new Map();
+  const workCounts = new Map();
+
+  rooms.forEach(room => {
+    const objectId = getSupabaseRelatedObjectId(room);
+    if (!objectId) return;
+    roomCounts.set(objectId, (roomCounts.get(objectId) || 0) + 1);
+  });
+
+  works.forEach(work => {
+    const objectId = getSupabaseRelatedObjectId(work);
+    if (!objectId) return;
+    workCounts.set(objectId, (workCounts.get(objectId) || 0) + 1);
+  });
+
+  return objects.map(obj => {
+    const objectId = getSupabaseObjectId(obj);
+    return {
+      id: objectId || crypto.randomUUID(),
+      name: obj.name || obj.title || "Без назви",
+      address: obj.address || "—",
+      status: obj.status || "—",
+      roomsCount: objectId ? (roomCounts.get(objectId) || 0) : 0,
+      worksCount: objectId ? (workCounts.get(objectId) || 0) : 0,
+    };
+  });
+}
+
+async function readSupabaseRows(tableName, ownerId) {
+  const { data, error } = await supabaseClient
+    .from(tableName)
+    .select("*")
+    .eq("owner_id", ownerId);
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+async function checkSupabaseCloudData() {
+  const user = state.authUser;
+  if (!user) {
+    state.supabaseCloudPreview = { loading: false, report: "", error: "Увійдіть у Supabase перед перевіркою хмарних даних.", objects: [] };
+    render();
+    return;
+  }
+
+  const ownerId = user.id;
+  state.supabaseCloudPreview = { loading: true, report: "Читаємо дані Supabase...", error: "", objects: [] };
+  render();
+
+  try {
+    const [clients, objects, rooms, works] = await Promise.all([
+      readSupabaseRows("clients", ownerId),
+      readSupabaseRows("objects", ownerId),
+      readSupabaseRows("object_rooms", ownerId),
+      readSupabaseRows("works", ownerId),
+    ]);
+
+    state.supabaseCloudPreview = {
+      loading: false,
+      report: `У Supabase: ${clients.length} замовників, ${objects.length} обʼєктів, ${rooms.length} кімнат, ${works.length} робіт.`,
+      error: "",
+      objects: normalizeSupabaseObjectPreview(objects, rooms, works),
+    };
+  } catch (error) {
+    state.supabaseCloudPreview = {
+      loading: false,
+      report: "",
+      error: `Помилка читання Supabase: ${error.message || error}`,
+      objects: [],
+    };
+    console.error("Supabase cloud preview failed", error);
+  }
+  render();
+}
+
 async function importBasicLocalDataToSupabase() {
   if (state.supabaseImportInProgress || state.supabaseImportBlocked) return;
 
@@ -3453,6 +3542,26 @@ function supabaseStatusRowHtml(label, ok, detail) {
   </div>`;
 }
 
+function renderSupabaseCloudPreview() {
+  const preview = state.supabaseCloudPreview || { loading: false, report: "", error: "", objects: [] };
+  const objectList = Array.isArray(preview.objects) ? preview.objects : [];
+  const message = preview.error || preview.report;
+  return `
+    ${message ? `<div class="auth-message ${preview.error ? "err" : "ok"}" style="margin-top:12px;">${esc(message)}</div>` : ""}
+    ${objectList.length ? `<div style="display:grid;gap:8px;margin-top:12px;">
+      ${objectList.map(obj => `<div class="work-row">
+        <div style="flex:1">
+          <div class="w-name">${esc(obj.name)}</div>
+          <div class="w-meta">${esc(obj.address)}</div>
+          <div class="w-meta">Статус: ${esc(obj.status)}</div>
+          <div class="w-meta">Кімнат: ${obj.roomsCount}</div>
+          <div class="w-meta">Робіт: ${obj.worksCount}</div>
+        </div>
+      </div>`).join("")}
+    </div>` : ""}
+  `;
+}
+
 function renderSupabaseCloudSettings() {
   const counts = countLocalDataForSupabase(state.data);
   const email = state.authUser && state.authUser.email ? state.authUser.email : "Не увійшли";
@@ -3477,9 +3586,11 @@ function renderSupabaseCloudSettings() {
       </div>
       <div class="btn-row">
         <button class="ghost-btn" onclick="checkLocalDataForSupabase()">Перевірити локальні дані</button>
+        <button class="ghost-btn" onclick="checkSupabaseCloudData()" ${(state.supabaseCloudPreview && state.supabaseCloudPreview.loading) ? "disabled" : ""}>${state.supabaseCloudPreview && state.supabaseCloudPreview.loading ? "Перевіряємо..." : "Перевірити хмарні дані"}</button>
         <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${(state.supabaseImportInProgress || state.supabaseImportBlocked) ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase"}</button>
       </div>
       ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
+      ${renderSupabaseCloudPreview()}
     </div>
   `;
 }
@@ -4786,7 +4897,7 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
