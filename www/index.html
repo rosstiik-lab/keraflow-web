@@ -2887,6 +2887,7 @@ function renderSupabasePrice() {
     orderedGroups.push({ category: { id: "__uncategorized", name: "Без категорії", sortOrder: 999999 }, items: groupedItems.get("__uncategorized") });
   }
   const isEmpty = !categories.length && !units.length && !items.length;
+  const importButton = isEmpty ? `<button class="primary-btn" onclick="importLocalPriceToSupabase()" ${state.supabaseImportInProgress ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт локального прайсу в Supabase"}</button>` : "";
 
   return `
     <div class="eyebrow">Бібліотека</div>
@@ -2903,6 +2904,7 @@ function renderSupabasePrice() {
       <div class="panel placeholder" style="margin-top:14px;">
         <div class="big">${svgIcon("price", 40)}</div>
         <div class="t">У Supabase ще немає прайсу.</div>
+        ${importButton ? `<div class="btn-row" style="margin-top:12px;justify-content:center;">${importButton}</div>` : ""}
       </div>
     ` : `
       <div class="panel" style="margin-top:14px;">
@@ -3452,6 +3454,90 @@ async function insertSupabaseRows(tableName, rows) {
     .select("id");
   if (error) throw error;
   return data || [];
+}
+
+function normalizePriceText(value) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object") return String(value.name || value.title || "").trim();
+  return "";
+}
+
+function uniqueNonEmptyPriceValues(values) {
+  return [...new Set((values || []).map(normalizePriceText).filter(Boolean))];
+}
+
+async function importLocalPriceToSupabase() {
+  const user = state.authUser;
+  if (!user) {
+    showSupabaseImportMessage("Увійдіть у Supabase перед імпортом прайсу.", "error");
+    render();
+    return;
+  }
+
+  const ownerId = user.id;
+  try {
+    state.supabaseImportInProgress = true;
+    state.supabaseImportPreviewReport = "Перевіряємо прайс Supabase перед імпортом...";
+    render();
+
+    const existingCounts = await Promise.all([
+      countSupabaseRows("price_categories", ownerId),
+      countSupabaseRows("price_units", ownerId),
+      countSupabaseRows("price_items", ownerId),
+    ]);
+    if (existingCounts.some(count => count > 0)) {
+      state.supabaseImportInProgress = false;
+      showSupabaseImportMessage("Імпорт прайсу заблоковано: у Supabase вже є прайс.", "error");
+      render();
+      return;
+    }
+
+    const priceItems = Array.isArray(state.data.priceItems) ? state.data.priceItems : [];
+    const localCategories = uniqueNonEmptyPriceValues([
+      ...(Array.isArray(state.data.priceCategories) ? state.data.priceCategories : []),
+      ...priceItems.map(item => item && item.category),
+    ]);
+    const localUnits = uniqueNonEmptyPriceValues([
+      ...(Array.isArray(state.data.priceUnits) ? state.data.priceUnits : []),
+      ...priceItems.map(item => item && item.unit),
+    ]);
+    const mainCurrency = state.data.settings.mainCurrency === "€" ? "EUR" : (state.data.settings.mainCurrency || "EUR");
+
+    const categoryRows = localCategories.map((name, index) => ({ owner_id: ownerId, name, sort_order: index }));
+    const insertedCategories = await insertSupabaseRows("price_categories", categoryRows);
+    const categoryIdByName = new Map();
+    localCategories.forEach((name, index) => {
+      if (insertedCategories[index]) categoryIdByName.set(name, insertedCategories[index].id);
+    });
+
+    const unitRows = localUnits.map((name, index) => ({ owner_id: ownerId, name, sort_order: index }));
+    await insertSupabaseRows("price_units", unitRows);
+
+    const itemRows = priceItems.map((priceItem, index) => {
+      const category = normalizePriceText(priceItem && priceItem.category);
+      return {
+        owner_id: ownerId,
+        category_id: categoryIdByName.get(category) || null,
+        title: (priceItem && (priceItem.name || priceItem.title)) || "Без назви",
+        unit: normalizePriceText(priceItem && priceItem.unit),
+        price: Number(priceItem && priceItem.price) || 0,
+        currency: (priceItem && priceItem.currency) || mainCurrency,
+        note: (priceItem && (priceItem.note || priceItem.notes)) || "",
+        sort_order: index,
+      };
+    });
+    await insertSupabaseRows("price_items", itemRows);
+
+    await enableSupabaseReadMode(false);
+    state.supabaseImportInProgress = false;
+    showSupabaseImportMessage(`Імпорт прайсу завершено: ${categoryRows.length} категорій, ${unitRows.length} одиниць, ${itemRows.length} позицій.`, "ok");
+    render();
+  } catch (error) {
+    state.supabaseImportInProgress = false;
+    showSupabaseImportMessage(`Помилка імпорту прайсу: ${error.message || error}`, "error");
+    console.error("Supabase price import failed", error);
+    render();
+  }
 }
 
 
@@ -6388,7 +6474,7 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, importLocalPriceToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
