@@ -3465,6 +3465,18 @@ function buildSupabaseReadData(clients, objects, rooms, works) {
   return { clients: Array.from(clientsById.values()), objects: normalizedObjects };
 }
 
+function hasSupabaseCloudData() {
+  const data = state.supabaseReadData || {};
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const objects = Array.isArray(data.objects) ? data.objects : [];
+  if (clients.length || objects.length) return true;
+  return objects.some(obj => {
+    const rooms = Array.isArray(obj && obj.rooms) ? obj.rooms : [];
+    if (rooms.length) return true;
+    return rooms.some(room => Array.isArray(room && room.works) && room.works.length > 0);
+  });
+}
+
 async function enableSupabaseReadMode(shouldRender) {
   const user = state.authUser;
   if (!user) {
@@ -4004,6 +4016,12 @@ async function checkSupabaseCloudData() {
 }
 
 async function importBasicLocalDataToSupabase() {
+  if (hasSupabaseCloudData()) {
+    state.supabaseImportPreviewReport = "Імпорт заблоковано: у Supabase вже є дані для цього користувача.";
+    state.authMessageType = "error";
+    render();
+    return;
+  }
   if (state.supabaseImportInProgress || state.supabaseImportBlocked) return;
 
   const user = state.authUser;
@@ -4177,7 +4195,10 @@ function renderSupabaseCloudSettings() {
   const counts = countLocalDataForSupabase(state.data);
   const email = state.authUser && state.authUser.email ? state.authUser.email : "Не увійшли";
   const status = state.supabaseStatus || {};
-  const modeMessage = state.supabaseReadMode ? "Хмарний режим увімкнено. Дані читаються і записуються в Supabase." : "Локальний режим увімкнено. Дані зберігаються тільки в цьому браузері.";
+  const modeMessage = state.supabaseReadMode ? "Хмарний режим активний. Основні дані читаються і записуються в Supabase." : "Локальний режим активний. Дані зберігаються тільки в цьому браузері.";
+  const hasCloudData = hasSupabaseCloudData();
+  const importDisabled = state.supabaseImportInProgress || state.supabaseImportBlocked || hasCloudData;
+  const importButtonText = hasCloudData ? "Імпорт уже виконано" : (state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase");
   return `
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Supabase / Хмарне збереження</div>
@@ -4202,8 +4223,9 @@ function renderSupabaseCloudSettings() {
         <button class="ghost-btn" onclick="enableSupabaseCloudModeFromSettings()" ${state.supabaseReadLoading ? "disabled" : ""}>Увімкнути хмарний режим</button>
         <button class="ghost-btn" onclick="disableSupabaseCloudModeFromSettings()" ${state.supabaseReadLoading ? "disabled" : ""}>Вимкнути хмарний режим</button>
         <button class="ghost-btn" onclick="refreshSupabaseCloudData()" ${state.supabaseReadLoading ? "disabled" : ""}>Оновити хмарні дані</button>
-        <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${(state.supabaseImportInProgress || state.supabaseImportBlocked) ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase"}</button>
+        <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${importDisabled ? "disabled" : ""}>${importButtonText}</button>
       </div>
+      ${hasCloudData ? `<div class="auth-message err" style="margin-top:12px;">У Supabase вже є хмарні дані. Повторний імпорт заблоковано, щоб не створити дублікати.</div>` : ""}
       ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
       ${state.supabaseReadLoading ? `<div class="auth-message ok" style="margin-top:12px;">Завантажуємо хмарні дані...</div>` : ""}
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-top:12px;">${esc(state.supabaseReadError)}</div>` : ""}
@@ -4215,6 +4237,7 @@ function renderSupabaseCloudSettings() {
 
 function renderSettings() {
   const cp = state.data.companyProfile || {};
+  const modeMessage = state.supabaseReadMode ? "Хмарний режим активний. Основні дані читаються і записуються в Supabase." : "Локальний режим активний. Дані зберігаються тільки в цьому браузері.";
   return `
     <div class="eyebrow">Система</div>
     <div class="h1" style="margin-bottom:18px;">Налаштування</div>
@@ -4267,7 +4290,7 @@ function renderSettings() {
     <div class="panel">
       <div class="group-label" style="margin-top:0;">Дані</div>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
-        Дані зберігаються локально у браузері (localStorage). Синхронізація з хмарою — наступний етап.
+        ${esc(modeMessage)}
       </p>
       <button class="ghost-btn" onclick="if(confirm('Скинути всі дані до демонстраційних?')){localStorage.removeItem('${STORAGE_KEY}');location.reload();}">
         Скинути дані до демо
