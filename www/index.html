@@ -1516,6 +1516,38 @@ function pickWorkPriceItem(id) {
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   render();
 }
+
+function setSupabaseWorkSearchQuery(q) {
+  if (!state.modal) return;
+  state.modal.pqQuery = q;
+  state.modal.pqOpen = true;
+  state.modal.supabasePriceItemId = null;
+  render();
+}
+function openSupabaseWorkSearchDropdown() {
+  if (!state.modal || state.modal.pqOpen) return;
+  state.modal.pqOpen = true;
+  render();
+}
+function pickSupabaseWorkPriceItem(id) {
+  if (!state.modal) return;
+  const p = ((state.supabasePriceData && state.supabasePriceData.items) || []).find(p => p.id === id);
+  state.modal.supabasePriceItemId = id;
+  state.modal.pqQuery = p ? p.title : "";
+  state.modal.pqOpen = false;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  render();
+}
+function supabasePriceItemCategoryName(item) {
+  const data = state.supabasePriceData || { categories: [] };
+  const category = item && item.categoryId ? (data.categories || []).find(category => category.id === item.categoryId) : null;
+  return category ? category.name : "Без категорії";
+}
+function supabasePriceMatchesSearch(item, q) {
+  const query = (q || "").trim().toLowerCase();
+  if (!query) return true;
+  return String(item && item.title || "").toLowerCase().includes(query);
+}
 /* ---------- Materials (unified feed) ---------- */
 function createMaterialItem(fields) {
   const o = getObj(); if (!o) return;
@@ -4730,17 +4762,44 @@ function renderModal() {
     const room = state.modal.id ? findSupabaseReadRoom(state.modal.id) : null;
     const creating = !!state.supabaseWorkCreating;
     const disabled = creating ? "disabled" : "";
+    const priceData = state.supabasePriceData || { categories: [], items: [] };
+    const priceItems = Array.isArray(priceData.items) ? priceData.items : [];
+    const selPriceItem = state.modal.supabasePriceItemId ? priceItems.find(item => item.id === state.modal.supabasePriceItemId) : null;
+    const query = state.modal.pqQuery !== undefined ? state.modal.pqQuery : "";
+    const dropdownOpen = !!state.modal.pqOpen;
+    const matches = priceItems.filter(item => supabasePriceMatchesSearch(item, query));
     body = `
     <h3>Нова робота Supabase</h3>
     ${room ? `
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
-      <div class="field"><label>Назва</label><input id="supabase-new-work-title" ${disabled}></div>
-      <div style="display:flex;gap:10px;">
-        <div class="field" style="flex:1"><label>Кількість</label><input id="supabase-new-work-quantity" type="number" inputmode="decimal" ${disabled}></div>
-        <div class="field" style="flex:1"><label>Одиниця</label><input id="supabase-new-work-unit" ${disabled}></div>
+      <div class="field" style="position:relative;">
+        <label>🔍 Пошук роботи</label>
+        <input id="supabase-new-work-search" placeholder="Почніть вводити назву роботи…" autocomplete="off"
+          value="${esc(query)}"
+          oninput="setSupabaseWorkSearchQuery(this.value)"
+          onfocus="openSupabaseWorkSearchDropdown()" ${disabled}>
+        ${dropdownOpen ? `
+        <div class="combo-dropdown">
+          ${matches.length ? matches.map(item => `
+            <div class="combo-item" onmousedown="event.preventDefault(); pickSupabaseWorkPriceItem('${item.id}')">
+              <div class="combo-item-name">${esc(item.title)}</div>
+              <div class="combo-item-meta"><span>${esc(supabasePriceItemCategoryName(item))}</span><span class="mono">${item.price} ${esc(item.currency || "")}${item.unit ? `/${esc(item.unit)}` : ""}</span></div>
+            </div>
+          `).join("") : `<div class="combo-empty">Нічого не знайдено. Перевірте прайс Supabase.</div>`}
+        </div>` : ""}
       </div>
-      <div class="field"><label>Ціна</label><input id="supabase-new-work-price" type="number" inputmode="decimal" ${disabled}></div>
-      <div class="field"><label>Примітка</label><textarea id="supabase-new-work-notes" rows="3" ${disabled}></textarea></div>
+      ${selPriceItem ? `
+        <div class="field"><label>Назва</label><input value="${esc(selPriceItem.title)}" disabled readonly></div>
+        <div style="display:flex;gap:10px;">
+          <div class="field" style="flex:1"><label>Категорія</label><input value="${esc(supabasePriceItemCategoryName(selPriceItem))}" disabled readonly></div>
+          <div class="field" style="flex:1"><label>Одиниця</label><input value="${esc(selPriceItem.unit || "")}" disabled readonly></div>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="field" style="flex:1"><label>Кількість</label><input id="supabase-new-work-quantity" type="number" inputmode="decimal" ${disabled}></div>
+          <div class="field" style="flex:1"><label>Ціна</label><input id="supabase-new-work-price" type="number" inputmode="decimal" value="${esc(selPriceItem.price)}" ${disabled}></div>
+        </div>
+        <div class="field"><label>Примітка</label><textarea id="supabase-new-work-notes" rows="3" ${disabled}></textarea></div>
+      ` : `<div class="empty-slot">Оберіть роботу з прайсу.</div>`}
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
         <button class="amber-btn" onclick="submitSupabaseNewWork()" ${disabled}>${creating ? "Створюємо..." : "Створити"}</button>
@@ -6683,12 +6742,21 @@ async function submitSupabaseNewWork() {
   }
   if (state.supabaseWorkCreating) return;
 
-  const title = val("supabase-new-work-title");
+  const priceItems = ((state.supabasePriceData && state.supabasePriceData.items) || []);
+  const selectedPriceItemId = state.modal && state.modal.supabasePriceItemId;
+  const selectedPriceItem = selectedPriceItemId ? priceItems.find(item => item.id === selectedPriceItemId) : null;
+  if (!selectedPriceItem) {
+    state.supabaseReadError = "Оберіть роботу з прайсу.";
+    render();
+    return;
+  }
+
+  const title = selectedPriceItem.title;
   const quantity = Number(val("supabase-new-work-quantity")) || 0;
-  const unit = val("supabase-new-work-unit");
+  const unit = selectedPriceItem.unit || "";
   const price = Number(val("supabase-new-work-price")) || 0;
   const notes = val("supabase-new-work-notes");
-  const currency = state.data.settings.mainCurrency === "€" ? "EUR" : (state.data.settings.mainCurrency || "EUR");
+  const currency = selectedPriceItem.currency || (state.data.settings.mainCurrency === "€" ? "EUR" : (state.data.settings.mainCurrency || "EUR"));
   const sort_order = Array.isArray(room.works) ? room.works.length : 0;
 
   state.supabaseWorkCreating = true;
@@ -6938,7 +7006,7 @@ Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDat
   setMaterialItemType, setMaterialPaymentType, handleReceiptPhotoChange, toggleFeedReport,
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
   submitPriceCategory, submitPriceUnit, deletePriceUnit,
-  setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem,
+  setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem, setSupabaseWorkSearchQuery, openSupabaseWorkSearchDropdown, pickSupabaseWorkPriceItem,
   openMaterialsReportPreview, saveMaterialsReport, viewMaterialReport,
   openActSelect, toggleActWorkSelect, toggleActRoomSelectAll, goToActPreview, backToActSelect, saveAct, viewAct });
 
