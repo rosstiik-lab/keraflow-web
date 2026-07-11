@@ -691,6 +691,12 @@ let state = {
   supabasePriceItemCreating: false,
   supabasePriceItemSavingId: null,
   supabasePriceItemDeletingIds: {},
+  supabasePriceCategoryCreating: false,
+  supabasePriceCategorySavingId: null,
+  supabasePriceCategoryDeletingIds: {},
+  supabasePriceUnitCreating: false,
+  supabasePriceUnitSavingId: null,
+  supabasePriceUnitDeletingIds: {},
   supabaseWorkUpdatingIds: {},
   supabaseWorkDeletingIds: {},
   supabaseWorkSavingId: null,
@@ -2885,8 +2891,7 @@ function renderSupabasePrice() {
     groupedItems.get(key).push(item);
   });
   const orderedGroups = categories
-    .filter(category => groupedItems.has(category.id))
-    .map(category => ({ category, items: groupedItems.get(category.id) }));
+    .map(category => ({ category, items: groupedItems.get(category.id) || [] }));
   if (groupedItems.has("__uncategorized")) {
     orderedGroups.push({ category: { id: "__uncategorized", name: "Без категорії", sortOrder: 999999 }, items: groupedItems.get("__uncategorized") });
   }
@@ -2901,6 +2906,8 @@ function renderSupabasePrice() {
     ${state.supabasePriceError ? `<div class="auth-alert bad" style="margin-top:14px;">${esc(state.supabasePriceError)}</div>` : ""}
     <div class="btn-row" style="margin-top:14px;margin-bottom:14px;">
       <button class="ghost-btn" onclick="openModal('supabasePriceItem')" ${state.supabasePriceItemCreating ? "disabled" : ""}>${state.supabasePriceItemCreating ? "Створюємо..." : "+ Нова позиція"}</button>
+      <button class="ghost-btn" onclick="openModal('supabasePriceCategory')" ${state.supabasePriceCategoryCreating ? "disabled" : ""}>${state.supabasePriceCategoryCreating ? "Створюємо..." : "+ Категорія"}</button>
+      <button class="ghost-btn" onclick="openModal('supabasePriceUnits')">Одиниці</button>
     </div>
     <div class="obj-header-stats-row">
       <div class="obj-header-stat"><div class="obj-header-stat-label">Категорій</div><div class="obj-header-stat-val mono">${categories.length}</div></div>
@@ -2915,10 +2922,13 @@ function renderSupabasePrice() {
       </div>
     ` : `
       <div class="panel" style="margin-top:14px;">
-        ${items.length ? orderedGroups.map(group => `
+        ${orderedGroups.length ? orderedGroups.map(group => `
           <div style="margin-bottom:18px;">
-            <div class="section-title">${esc(group.category.name)}</div>
-            ${group.items.map(item => supabasePriceRowHtml(item)).join("")}
+            <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <span>${esc(group.category.name)}</span>
+              ${group.category.id !== "__uncategorized" ? `<span class="btn-row" style="margin:0;"><button class="ghost-btn" onclick="openModal('supabasePriceCategory','${esc(group.category.id)}')" ${state.supabasePriceCategorySavingId === group.category.id ? "disabled" : ""}>Редагувати</button><button class="ghost-btn" onclick="deleteSupabasePriceCategory('${esc(group.category.id)}')" ${state.supabasePriceCategoryDeletingIds && state.supabasePriceCategoryDeletingIds[group.category.id] ? "disabled" : ""}>${state.supabasePriceCategoryDeletingIds && state.supabasePriceCategoryDeletingIds[group.category.id] ? "Видаляємо..." : "Видалити"}</button></span>` : ""}
+            </div>
+            ${group.items.length ? group.items.map(item => supabasePriceRowHtml(item)).join("") : `<div class="empty-slot">У категорії ще немає позицій.</div>`}
           </div>
         `).join("") : `<div class="empty-slot">У Supabase ще немає позицій прайсу.</div>`}
       </div>
@@ -3678,6 +3688,18 @@ function buildSupabasePriceData(categories, units, items) {
   };
 }
 
+function resetSupabasePriceLoadingStates() {
+  state.supabasePriceItemCreating = false;
+  state.supabasePriceItemSavingId = null;
+  state.supabasePriceItemDeletingIds = {};
+  state.supabasePriceCategoryCreating = false;
+  state.supabasePriceCategorySavingId = null;
+  state.supabasePriceCategoryDeletingIds = {};
+  state.supabasePriceUnitCreating = false;
+  state.supabasePriceUnitSavingId = null;
+  state.supabasePriceUnitDeletingIds = {};
+}
+
 function hasSupabaseCloudData() {
   const data = state.supabaseReadData || {};
   const clients = Array.isArray(data.clients) ? data.clients : [];
@@ -3698,9 +3720,7 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabasePriceData = null;
     state.supabasePriceLoading = false;
     state.supabasePriceError = "";
-    state.supabasePriceItemCreating = false;
-    state.supabasePriceItemSavingId = null;
-    state.supabasePriceItemDeletingIds = {};
+    resetSupabasePriceLoadingStates();
     state.supabaseWorkUpdatingIds = {};
     state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
@@ -3756,9 +3776,7 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabaseReadError = "";
     state.supabasePriceLoading = false;
     state.supabasePriceError = "";
-    state.supabasePriceItemCreating = false;
-    state.supabasePriceItemSavingId = null;
-    state.supabasePriceItemDeletingIds = {};
+    resetSupabasePriceLoadingStates();
     state.supabaseSelectedObjId = null;
     state.selectedObjId = null;
     state.openActionMenuId = null;
@@ -3768,6 +3786,7 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabasePriceData = null;
     state.supabasePriceLoading = false;
     state.supabasePriceError = `Помилка читання прайсу Supabase: ${error.message || error}`;
+    resetSupabasePriceLoadingStates();
     state.supabaseWorkUpdatingIds = {};
     state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
@@ -3794,9 +3813,7 @@ function disableSupabaseReadMode(shouldRender) {
   state.supabasePriceData = null;
   state.supabasePriceLoading = false;
   state.supabasePriceError = "";
-  state.supabasePriceItemCreating = false;
-  state.supabasePriceItemSavingId = null;
-  state.supabasePriceItemDeletingIds = {};
+  resetSupabasePriceLoadingStates();
   state.supabaseWorkUpdatingIds = {};
   state.supabaseWorkDeletingIds = {};
   state.supabaseWorkSavingId = null;
@@ -4933,6 +4950,49 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
       <button class="amber-btn danger" onclick="deleteSupabasePriceItem('${item ? esc(item.id) : ""}')" ${disabled}>${deleting ? "Видаляємо..." : "Видалити"}</button>
+    </div>`;
+  }
+  if (t === "supabasePriceCategory") {
+    const data = state.supabasePriceData || { categories: [] };
+    const editing = state.modal.id ? (data.categories || []).find(category => category.id === state.modal.id) : null;
+    const creating = !editing && !!state.supabasePriceCategoryCreating;
+    const saving = !!(editing && state.supabasePriceCategorySavingId === editing.id);
+    const disabled = (creating || saving) ? "disabled" : "";
+    body = `
+    <h3>${editing ? "Редагувати категорію" : "Нова категорія прайсу Supabase"}</h3>
+    ${state.supabasePriceError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabasePriceError)}</div>` : ""}
+    <div class="field"><label>Назва категорії</label><input id="supabase-price-category-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
+      <button class="amber-btn" onclick="${editing ? "submitSupabasePriceCategoryEdit()" : "submitSupabaseNewPriceCategory()"}" ${disabled}>${creating ? "Створюємо..." : (saving ? "Зберігаємо..." : "Зберегти")}</button>
+    </div>`;
+  }
+  if (t === "supabasePriceUnits") {
+    const data = state.supabasePriceData || { units: [] };
+    const units = data.units || [];
+    body = `
+    <h3>Одиниці прайсу Supabase</h3>
+    ${state.supabasePriceError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabasePriceError)}</div>` : ""}
+    <div class="btn-row" style="margin-bottom:12px;"><button class="ghost-btn" onclick="openModal('supabasePriceUnit')" ${state.supabasePriceUnitCreating ? "disabled" : ""}>${state.supabasePriceUnitCreating ? "Створюємо..." : "+ Додати одиницю"}</button></div>
+    ${units.length ? units.map(unit => {
+      const disabled = (state.supabasePriceUnitSavingId === unit.id) || (state.supabasePriceUnitDeletingIds && state.supabasePriceUnitDeletingIds[unit.id]);
+      return `<div class="work-row"><div style="flex:1"><div class="w-name">${esc(unit.name)}</div></div><button class="ghost-btn" onclick="openModal('supabasePriceUnit','${esc(unit.id)}')" ${disabled ? "disabled" : ""}>Редагувати</button><button class="ghost-btn" onclick="deleteSupabasePriceUnit('${esc(unit.id)}')" ${disabled ? "disabled" : ""}>${state.supabasePriceUnitDeletingIds && state.supabasePriceUnitDeletingIds[unit.id] ? "Видаляємо..." : "Видалити"}</button></div>`;
+    }).join("") : `<div class="empty-slot">У Supabase ще немає одиниць.</div>`}
+    <div class="modal-actions"><button class="ghost-btn" onclick="closeModal()">Закрити</button></div>`;
+  }
+  if (t === "supabasePriceUnit") {
+    const data = state.supabasePriceData || { units: [] };
+    const editing = state.modal.id ? (data.units || []).find(unit => unit.id === state.modal.id) : null;
+    const creating = !editing && !!state.supabasePriceUnitCreating;
+    const saving = !!(editing && state.supabasePriceUnitSavingId === editing.id);
+    const disabled = (creating || saving) ? "disabled" : "";
+    body = `
+    <h3>${editing ? "Редагувати одиницю" : "Нова одиниця прайсу Supabase"}</h3>
+    ${state.supabasePriceError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabasePriceError)}</div>` : ""}
+    <div class="field"><label>Назва одиниці</label><input id="supabase-price-unit-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="openModal('supabasePriceUnits')" ${disabled}>Назад</button>
+      <button class="amber-btn" onclick="${editing ? "submitSupabasePriceUnitEdit()" : "submitSupabaseNewPriceUnit()"}" ${disabled}>${creating ? "Створюємо..." : (saving ? "Зберігаємо..." : "Зберегти")}</button>
     </div>`;
   }
   if (t === "price") {
@@ -6290,6 +6350,221 @@ async function submitSupabaseRoomEdit() {
   }
 }
 
+function ensureSupabasePriceData() {
+  if (!state.supabasePriceData) state.supabasePriceData = { categories: [], units: [], items: [] };
+  if (!Array.isArray(state.supabasePriceData.categories)) state.supabasePriceData.categories = [];
+  if (!Array.isArray(state.supabasePriceData.units)) state.supabasePriceData.units = [];
+  if (!Array.isArray(state.supabasePriceData.items)) state.supabasePriceData.items = [];
+  return state.supabasePriceData;
+}
+
+async function submitSupabaseNewPriceCategory() {
+  const user = state.authUser;
+  if (!state.supabaseReadMode || !user) {
+    state.supabasePriceError = "Помилка створення категорії прайсу Supabase: увійдіть у Supabase і відкрийте хмарний режим.";
+    render();
+    return;
+  }
+  if (state.supabasePriceCategoryCreating) return;
+  const name = val("supabase-price-category-name");
+  if (!name) return;
+  const priceData = ensureSupabasePriceData();
+  state.supabasePriceCategoryCreating = true;
+  state.supabasePriceError = "";
+  render();
+  try {
+    const { data, error } = await supabaseClient
+      .from("price_categories")
+      .insert({ owner_id: user.id, name, sort_order: priceData.categories.length })
+      .select("id,name,sort_order")
+      .single();
+    if (error) throw error;
+    priceData.categories.push({ id: data.id, name: data.name || name, sortOrder: Number(data.sort_order || 0) || 0 });
+    priceData.categories.sort(sortSupabasePriceRows);
+    state.supabasePriceData = priceData;
+    state.modal = null;
+  } catch (error) {
+    state.supabasePriceError = `Помилка створення категорії прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price category create failed", error);
+  } finally {
+    state.supabasePriceCategoryCreating = false;
+    render();
+  }
+}
+
+async function submitSupabasePriceCategoryEdit() {
+  const user = state.authUser;
+  const categoryId = state.modal && state.modal.id;
+  const priceData = ensureSupabasePriceData();
+  const category = (priceData.categories || []).find(category => category.id === categoryId);
+  if (!state.supabaseReadMode || !user || !categoryId || !category) {
+    state.supabasePriceError = "Помилка редагування категорії прайсу Supabase: виберіть категорію Supabase.";
+    render();
+    return;
+  }
+  if (state.supabasePriceCategorySavingId === categoryId) return;
+  const name = val("supabase-price-category-name");
+  if (!name) return;
+  state.supabasePriceCategorySavingId = categoryId;
+  state.supabasePriceError = "";
+  render();
+  try {
+    const { data, error } = await supabaseClient
+      .from("price_categories")
+      .update({ name })
+      .eq("id", categoryId)
+      .eq("owner_id", user.id)
+      .select("id,name,sort_order")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("категорію не знайдено або вона не належить поточному користувачу");
+    category.name = data.name || name;
+    category.sortOrder = Number(data.sort_order || category.sortOrder || 0) || 0;
+    priceData.categories.sort(sortSupabasePriceRows);
+    state.supabasePriceData = priceData;
+    state.modal = null;
+  } catch (error) {
+    state.supabasePriceError = `Помилка редагування категорії прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price category edit failed", error);
+  } finally {
+    state.supabasePriceCategorySavingId = null;
+    render();
+  }
+}
+
+async function deleteSupabasePriceCategory(categoryId) {
+  const user = state.authUser;
+  const priceData = ensureSupabasePriceData();
+  if (!state.supabaseReadMode || !user || !categoryId) {
+    state.supabasePriceError = "Помилка видалення категорії прайсу Supabase: виберіть категорію Supabase.";
+    render();
+    return;
+  }
+  if ((priceData.items || []).some(item => item.categoryId === categoryId)) {
+    state.supabasePriceError = "Спочатку змініть категорію у позиціях прайсу.";
+    render();
+    return;
+  }
+  if (!confirm("Видалити цю категорію з Supabase?")) return;
+  state.supabasePriceCategoryDeletingIds = state.supabasePriceCategoryDeletingIds || {};
+  if (state.supabasePriceCategoryDeletingIds[categoryId]) return;
+  state.supabasePriceCategoryDeletingIds[categoryId] = true;
+  state.supabasePriceError = "";
+  render();
+  try {
+    const { data, error } = await supabaseClient.from("price_categories").delete().eq("id", categoryId).eq("owner_id", user.id).select("id").maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("категорію не знайдено або вона не належить поточному користувачу");
+    priceData.categories = (priceData.categories || []).filter(category => category.id !== categoryId);
+    state.supabasePriceData = priceData;
+  } catch (error) {
+    state.supabasePriceError = `Помилка видалення категорії прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price category delete failed", error);
+  } finally {
+    if (state.supabasePriceCategoryDeletingIds) delete state.supabasePriceCategoryDeletingIds[categoryId];
+    render();
+  }
+}
+
+async function submitSupabaseNewPriceUnit() {
+  const user = state.authUser;
+  if (!state.supabaseReadMode || !user) {
+    state.supabasePriceError = "Помилка створення одиниці прайсу Supabase: увійдіть у Supabase і відкрийте хмарний режим.";
+    render();
+    return;
+  }
+  if (state.supabasePriceUnitCreating) return;
+  const name = val("supabase-price-unit-name");
+  if (!name) return;
+  const priceData = ensureSupabasePriceData();
+  state.supabasePriceUnitCreating = true;
+  state.supabasePriceError = "";
+  render();
+  try {
+    const { data, error } = await supabaseClient.from("price_units").insert({ owner_id: user.id, name, sort_order: priceData.units.length }).select("id,name,sort_order").single();
+    if (error) throw error;
+    priceData.units.push({ id: data.id, name: data.name || name, sortOrder: Number(data.sort_order || 0) || 0 });
+    priceData.units.sort(sortSupabasePriceRows);
+    state.supabasePriceData = priceData;
+    state.modal = { type: "supabasePriceUnits" };
+  } catch (error) {
+    state.supabasePriceError = `Помилка створення одиниці прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price unit create failed", error);
+  } finally {
+    state.supabasePriceUnitCreating = false;
+    render();
+  }
+}
+
+async function submitSupabasePriceUnitEdit() {
+  const user = state.authUser;
+  const unitId = state.modal && state.modal.id;
+  const priceData = ensureSupabasePriceData();
+  const unit = (priceData.units || []).find(unit => unit.id === unitId);
+  if (!state.supabaseReadMode || !user || !unitId || !unit) {
+    state.supabasePriceError = "Помилка редагування одиниці прайсу Supabase: виберіть одиницю Supabase.";
+    render();
+    return;
+  }
+  if (state.supabasePriceUnitSavingId === unitId) return;
+  const name = val("supabase-price-unit-name");
+  if (!name) return;
+  state.supabasePriceUnitSavingId = unitId;
+  state.supabasePriceError = "";
+  render();
+  try {
+    const { data, error } = await supabaseClient.from("price_units").update({ name }).eq("id", unitId).eq("owner_id", user.id).select("id,name,sort_order").maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("одиницю не знайдено або вона не належить поточному користувачу");
+    unit.name = data.name || name;
+    unit.sortOrder = Number(data.sort_order || unit.sortOrder || 0) || 0;
+    priceData.units.sort(sortSupabasePriceRows);
+    state.supabasePriceData = priceData;
+    state.modal = { type: "supabasePriceUnits" };
+  } catch (error) {
+    state.supabasePriceError = `Помилка редагування одиниці прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price unit edit failed", error);
+  } finally {
+    state.supabasePriceUnitSavingId = null;
+    render();
+  }
+}
+
+async function deleteSupabasePriceUnit(unitId) {
+  const user = state.authUser;
+  const priceData = ensureSupabasePriceData();
+  const unit = (priceData.units || []).find(unit => unit.id === unitId);
+  if (!state.supabaseReadMode || !user || !unitId || !unit) {
+    state.supabasePriceError = "Помилка видалення одиниці прайсу Supabase: виберіть одиницю Supabase.";
+    render();
+    return;
+  }
+  if ((priceData.items || []).some(item => item.unit === unit.name)) {
+    state.supabasePriceError = "Спочатку змініть одиницю у позиціях прайсу.";
+    render();
+    return;
+  }
+  if (!confirm("Видалити цю одиницю з Supabase?")) return;
+  state.supabasePriceUnitDeletingIds = state.supabasePriceUnitDeletingIds || {};
+  if (state.supabasePriceUnitDeletingIds[unitId]) return;
+  state.supabasePriceUnitDeletingIds[unitId] = true;
+  state.supabasePriceError = "";
+  render();
+  try {
+    const { data, error } = await supabaseClient.from("price_units").delete().eq("id", unitId).eq("owner_id", user.id).select("id").maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("одиницю не знайдено або вона не належить поточному користувачу");
+    priceData.units = (priceData.units || []).filter(unit => unit.id !== unitId);
+    state.supabasePriceData = priceData;
+  } catch (error) {
+    state.supabasePriceError = `Помилка видалення одиниці прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price unit delete failed", error);
+  } finally {
+    if (state.supabasePriceUnitDeletingIds) delete state.supabasePriceUnitDeletingIds[unitId];
+    render();
+  }
+}
+
 async function submitSupabasePriceItem(id) {
   const user = state.authUser;
   if (!state.supabaseReadMode || !user) {
@@ -6659,7 +6934,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, importLocalPriceToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, submitSupabaseNewPriceItem: submitSupabasePriceItem, submitSupabasePriceItem, deleteSupabasePriceItem, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, submitSupabaseNewPriceItem: submitSupabasePriceItem, submitSupabasePriceItem, deleteSupabasePriceItem, submitSupabaseNewPriceCategory, submitSupabasePriceCategoryEdit, deleteSupabasePriceCategory, submitSupabaseNewPriceUnit, submitSupabasePriceUnitEdit, deleteSupabasePriceUnit, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
