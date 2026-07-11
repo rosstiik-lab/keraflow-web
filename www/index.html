@@ -705,6 +705,8 @@ let state = {
   supabaseRoomCreating: false,
   supabaseRoomSavingId: null,
   supabaseRoomDeletingIds: {},
+  supabaseProposalSaving: false,
+  supabaseProposalError: "",
   supabaseObjectCreating: false,
   supabaseObjectSavingId: null,
   supabaseObjectDeletingIds: {},
@@ -3744,7 +3746,7 @@ function getSupabaseRelatedRoomId(row) {
   return row && (row.room_id || row.roomId || row.room);
 }
 
-function buildSupabaseReadData(clients, objects, rooms, works, clientPriceOverrides = []) {
+function buildSupabaseReadData(clients, objects, rooms, works, clientPriceOverrides = [], proposals = [], proposalItems = []) {
   const overridesByClientId = new Map();
   (clientPriceOverrides || []).forEach(row => {
     const clientId = row.client_id || row.clientId;
@@ -3756,6 +3758,40 @@ function buildSupabaseReadData(clients, objects, rooms, works, clientPriceOverri
       price: Number(row.price || 0) || 0,
     });
   });
+  const proposalItemsByProposalId = new Map();
+  (proposalItems || []).forEach(row => {
+    const proposalId = row.proposal_id || row.proposalId;
+    if (!proposalId) return;
+    if (!proposalItemsByProposalId.has(proposalId)) proposalItemsByProposalId.set(proposalId, []);
+    proposalItemsByProposalId.get(proposalId).push({
+      id: row.id || crypto.randomUUID(),
+      sourcePriceItemId: row.source_price_item_id || row.sourcePriceItemId || null,
+      title: row.title || "Без назви",
+      unit: row.unit || "",
+      quantity: Number(row.quantity || 0) || 0,
+      price: Number(row.price || 0) || 0,
+      currency: row.currency || "",
+      note: row.note || "",
+      basePriceSnapshot: row.base_price_snapshot == null ? null : Number(row.base_price_snapshot),
+      clientPriceSnapshot: row.client_price_snapshot == null ? null : Number(row.client_price_snapshot),
+      sortOrder: Number(row.sort_order || 0) || 0,
+    });
+  });
+  const proposalsByObjectId = new Map();
+  (proposals || []).forEach(row => {
+    const objectId = row.object_id || row.objectId;
+    if (!objectId) return;
+    const items = (proposalItemsByProposalId.get(row.id) || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+    proposalsByObjectId.set(objectId, {
+      id: row.id,
+      objectId,
+      status: row.status || "draft",
+      createdAt: row.created_at || row.createdAt || "",
+      updatedAt: row.updated_at || row.updatedAt || "",
+      items,
+    });
+  });
+
   const clientsById = new Map();
   (clients || []).forEach(client => {
     if (client && client.id) clientsById.set(client.id, {
@@ -3824,6 +3860,7 @@ function buildSupabaseReadData(clients, objects, rooms, works, clientPriceOverri
       notes: obj.notes || obj.note || "",
       clientId: obj.client_id || obj.clientId || null,
       client: clientsById.get(obj.client_id || obj.clientId || null) || null,
+      proposal: proposalsByObjectId.get(objectId) || null,
       rooms: objectRooms,
     };
   });
@@ -3902,6 +3939,8 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabaseRoomCreating = false;
     state.supabaseRoomSavingId = null;
     state.supabaseRoomDeletingIds = {};
+    state.supabaseProposalSaving = false;
+    state.supabaseProposalError = "";
     state.supabaseObjectCreating = false;
     state.supabaseObjectSavingId = null;
     state.supabaseObjectDeletingIds = {};
@@ -3923,7 +3962,7 @@ async function enableSupabaseReadMode(shouldRender) {
   if (shouldRender !== false) render();
 
   try {
-    const [clients, objects, rooms, works, priceCategories, priceUnits, priceItems, clientPriceOverrides] = await Promise.all([
+    const [clients, objects, rooms, works, priceCategories, priceUnits, priceItems, clientPriceOverrides, proposals, proposalItems] = await Promise.all([
       readSupabaseRows("clients", ownerId),
       readSupabaseRows("objects", ownerId),
       readSupabaseRows("object_rooms", ownerId),
@@ -3932,8 +3971,10 @@ async function enableSupabaseReadMode(shouldRender) {
       readSupabaseRows("price_units", ownerId),
       readSupabaseRows("price_items", ownerId),
       readSupabaseRowsOptional("client_price_overrides", ownerId),
+      readSupabaseRowsOptional("proposals", ownerId),
+      readSupabaseRowsOptional("proposal_items", ownerId),
     ]);
-    state.supabaseReadData = buildSupabaseReadData(clients, objects, rooms, works, clientPriceOverrides);
+    state.supabaseReadData = buildSupabaseReadData(clients, objects, rooms, works, clientPriceOverrides, proposals, proposalItems);
     state.supabasePriceData = buildSupabasePriceData(priceCategories, priceUnits, priceItems);
     state.supabaseWorkUpdatingIds = {};
     state.supabaseWorkDeletingIds = {};
@@ -3941,6 +3982,8 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabaseRoomCreating = false;
     state.supabaseRoomSavingId = null;
     state.supabaseRoomDeletingIds = {};
+    state.supabaseProposalSaving = false;
+    state.supabaseProposalError = "";
     state.supabaseObjectCreating = false;
     state.supabaseObjectSavingId = null;
     state.supabaseObjectDeletingIds = {};
@@ -3969,6 +4012,8 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabaseRoomCreating = false;
     state.supabaseRoomSavingId = null;
     state.supabaseRoomDeletingIds = {};
+    state.supabaseProposalSaving = false;
+    state.supabaseProposalError = "";
     state.supabaseObjectCreating = false;
     state.supabaseObjectSavingId = null;
     state.supabaseObjectDeletingIds = {};
@@ -4335,6 +4380,69 @@ function supabaseReadRoomHtml(room) {
   </div>`;
 }
 
+
+function proposalStatusLabel(status) { return status === "draft" ? "Чернетка" : (status || "—"); }
+function proposalTotal(proposal) { return (proposal && proposal.items || []).reduce((s, it) => s + (Number(it.quantity)||0) * (Number(it.price)||0), 0); }
+function renderSupabaseProposalSection(obj) {
+  const proposal = obj.proposal;
+  if (!proposal) return `<div class="section-card" style="margin-bottom:14px;"><div class="section-head"><div><div class="eyebrow">Пропозиція</div><div class="section-title">Пропозиція</div></div></div><div class="empty-slot">Пропозиція для цього об’єкта ще не сформована.</div>${state.supabaseProposalError ? `<div class="auth-message error" style="margin-top:10px;">${esc(state.supabaseProposalError)}</div>` : ""}<button class="amber-btn" onclick="openSupabaseProposalModal('${esc(obj.id)}')">+ Сформувати пропозицію</button></div>`;
+  const total = proposalTotal(proposal);
+  return `<div class="section-card" style="margin-bottom:14px;"><div class="section-head"><div><div class="eyebrow">Пропозиція</div><div class="section-title">Пропозиція</div></div><button class="ghost-btn" onclick="openSupabaseProposalModal('${esc(obj.id)}')">Редагувати</button></div>${state.supabaseProposalError ? `<div class="auth-message error" style="margin-bottom:10px;">${esc(state.supabaseProposalError)}</div>` : ""}<div class="room-stats" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:12px;"><div class="mini-stat"><div class="mini-stat-label">СТАТУС</div><div class="mini-stat-val amber">${esc(proposalStatusLabel(proposal.status))}</div></div><div class="mini-stat"><div class="mini-stat-label">ДАТА СТВОРЕННЯ</div><div class="mini-stat-val mono">${proposal.createdAt ? esc(new Date(proposal.createdAt).toLocaleDateString('uk-UA')) : '—'}</div></div><div class="mini-stat"><div class="mini-stat-label">ПОЗИЦІЙ</div><div class="mini-stat-val mono">${proposal.items.length}</div></div><div class="mini-stat"><div class="mini-stat-label">ЗАГАЛЬНА СУМА</div><div class="mini-stat-val mono">${fmtMoney(total, (proposal.items[0] && proposal.items[0].currency) || mainCurrency())}</div></div></div>${proposal.items.map((it, idx) => `<div class="work-row"><div style="flex:1"><div class="w-name">${idx+1}. ${esc(it.title)}</div><div class="w-meta"><span class="mono">${it.quantity} ${esc(it.unit || '')}</span><span class="mono">${it.price} ${esc(it.currency || mainCurrency())}</span>${it.note ? `<span>📝 ${esc(it.note)}</span>` : ""}</div></div><div class="mono" style="font-weight:800;">${fmtMoney(it.quantity * it.price, it.currency || mainCurrency())}</div></div>`).join("") || `<div class="empty-slot">У пропозиції немає позицій.</div>`}</div>`;
+}
+function getSupabaseProposalDraftFromModal() {
+  const modal = state.modal || {};
+  modal.items = modal.items || [];
+  return modal.items;
+}
+function openSupabaseProposalModal(objectId) {
+  const obj = findSupabaseReadObject(objectId);
+  if (!obj) return;
+  const items = obj.proposal ? obj.proposal.items.map(it => ({ ...it, priceItemId: it.sourcePriceItemId, selected: true })) : [];
+  state.modal = { type: "supabaseProposal", id: objectId, items, query: "", error: "" };
+  state.supabaseProposalError = "";
+  render();
+}
+function setSupabaseProposalSearch(q) { if (!state.modal) return; state.modal.query = q; render(); }
+function toggleSupabaseProposalItem(priceItemId) {
+  if (!state.modal) return;
+  const items = getSupabaseProposalDraftFromModal();
+  const existing = items.find(it => it.priceItemId === priceItemId || it.sourcePriceItemId === priceItemId);
+  if (existing) state.modal.items = items.filter(it => (it.priceItemId || it.sourcePriceItemId) !== priceItemId);
+  else {
+    const obj = findSupabaseReadObject(state.modal.id);
+    const item = ((state.supabasePriceData && state.supabasePriceData.items) || []).find(p => p.id === priceItemId);
+    if (!item || !obj) return;
+    const clientPrice = resolveSupabaseClientPrice(obj.clientId, item.id, item.price);
+    items.push({ priceItemId: item.id, sourcePriceItemId: item.id, title: item.title, unit: item.unit || "", quantity: 0, price: clientPrice, currency: item.currency || mainCurrency(), note: "", basePriceSnapshot: item.price, clientPriceSnapshot: clientPrice, sortOrder: items.length });
+  }
+  render();
+}
+function setSupabaseProposalItemField(priceItemId, field, value) { const it = getSupabaseProposalDraftFromModal().find(x => (x.priceItemId || x.sourcePriceItemId) === priceItemId); if (!it) return; it[field] = (field === 'quantity' || field === 'price') ? (Number(value)||0) : value; }
+async function saveSupabaseProposal() {
+  const user = state.authUser, obj = state.modal && findSupabaseReadObject(state.modal.id);
+  if (!user || !obj) return;
+  if (state.supabaseProposalSaving) return;
+  const draftItems = getSupabaseProposalDraftFromModal().map((it, idx) => ({...it, quantity:Number(it.quantity)||0, price:Number(it.price)||0, note:it.note||"", sortOrder:idx}));
+  if (!draftItems.length) { state.modal.error = "Оберіть хоча б одну позицію для пропозиції."; render(); return; }
+  state.supabaseProposalSaving = true; state.modal.error = ""; render();
+  try {
+    let proposal = obj.proposal;
+    if (!proposal) {
+      const { data, error } = await supabaseClient.from("proposals").insert({ owner_id:user.id, object_id:obj.id, status:"draft" }).select("id,object_id,status,created_at,updated_at").single();
+      if (error) throw error; proposal = { id:data.id, objectId:data.object_id, status:data.status, createdAt:data.created_at, updatedAt:data.updated_at, items:[] }; obj.proposal = proposal;
+    }
+    await supabaseClient.from("proposal_items").delete().eq("proposal_id", proposal.id).eq("owner_id", user.id);
+    const rows = draftItems.map(it => ({ owner_id:user.id, proposal_id:proposal.id, source_price_item_id:it.sourcePriceItemId || it.priceItemId || null, title:it.title, unit:it.unit, quantity:it.quantity, price:it.price, currency:it.currency, note:it.note, base_price_snapshot:it.basePriceSnapshot, client_price_snapshot:it.clientPriceSnapshot, sort_order:it.sortOrder }));
+    const { data, error } = await supabaseClient.from("proposal_items").insert(rows).select("id,source_price_item_id,title,unit,quantity,price,currency,note,base_price_snapshot,client_price_snapshot,sort_order");
+    if (error) throw error;
+    proposal.items = (data || []).map(row => ({ id:row.id, sourcePriceItemId:row.source_price_item_id, title:row.title, unit:row.unit||"", quantity:Number(row.quantity)||0, price:Number(row.price)||0, currency:row.currency||"", note:row.note||"", basePriceSnapshot:row.base_price_snapshot == null ? null : Number(row.base_price_snapshot), clientPriceSnapshot:row.client_price_snapshot == null ? null : Number(row.client_price_snapshot), sortOrder:Number(row.sort_order)||0 })).sort((a,b)=>a.sortOrder-b.sortOrder);
+    state.modal = null;
+  } catch (error) {
+    state.modal.error = `Помилка збереження пропозиції: ${error.message || error}`;
+    console.error("Proposal save failed", error);
+  } finally { state.supabaseProposalSaving = false; render(); }
+}
+
 function renderSupabaseReadObjectDetail() {
   const obj = getSupabaseReadObject();
   if (!obj) {
@@ -4358,6 +4466,7 @@ function renderSupabaseReadObjectDetail() {
       ${obj.client ? `<div class="obj-row-addr" style="margin-bottom:12px;">Клієнт: ${esc(obj.client.name)}</div>` : ""}
       <div class="auth-message ok" style="margin-bottom:12px;">Хмарний режим Supabase. Можна керувати кімнатами та роботами без перезавантаження сторінки.</div>
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+      ${renderSupabaseProposalSection(obj)}
       ${rooms.map(supabaseReadRoomHtml).join("") || `<div class="empty-slot">У хмарного обʼєкта немає кімнат.</div>`}
       <button class="dashed-btn" ${state.supabaseRoomCreating ? "disabled" : ""} onclick="openModal('supabaseRoom')">${state.supabaseRoomCreating ? "Створюємо..." : "+ Додати кімнату"}</button>
     </div>
@@ -5013,6 +5122,46 @@ function renderModal() {
     `}
     `;
   }
+
+  if (t === "supabaseProposal") {
+    const obj = state.modal.id ? findSupabaseReadObject(state.modal.id) : null;
+    const saving = !!state.supabaseProposalSaving;
+    const disabled = saving ? "disabled" : "";
+    const query = (state.modal.query || "").trim().toLowerCase();
+    const priceItems = ((state.supabasePriceData && state.supabasePriceData.items) || []).filter(item => !query || String(item.title || "").toLowerCase().includes(query));
+    const draftItems = state.modal.items || [];
+    const draftByPriceId = new Map(draftItems.map(it => [it.priceItemId || it.sourcePriceItemId, it]));
+    const total = draftItems.reduce((s, it) => s + (Number(it.quantity)||0) * (Number(it.price)||0), 0);
+    body = `
+    <h3>${obj && obj.proposal ? "Редагувати пропозицію" : "Сформувати пропозицію"}</h3>
+    ${state.modal.error ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.modal.error)}</div>` : ""}
+    ${obj ? `
+      <div class="field"><label>Пошук за назвою</label><input id="supabase-proposal-search" value="${esc(state.modal.query || "")}" oninput="setSupabaseProposalSearch(this.value)" ${disabled}></div>
+      <div style="max-height:46vh;overflow:auto;padding-right:4px;">
+        ${priceItems.map(item => {
+          const selected = draftByPriceId.get(item.id);
+          const clientPrice = resolveSupabaseClientPrice(obj.clientId, item.id, item.price);
+          const cur = item.currency || mainCurrency();
+          return `<div class="work-row" style="align-items:flex-start;">
+            <input type="checkbox" style="width:20px;height:20px;margin-top:4px;" ${selected ? "checked" : ""} onchange="toggleSupabaseProposalItem('${esc(item.id)}')" ${disabled}>
+            <div style="flex:1;min-width:0;">
+              <div class="w-name">${esc(item.title)}</div>
+              <div class="w-meta"><span class="mono">${esc(item.unit || "—")}</span><span class="mono">Основний прайс: ${item.price} ${esc(cur)}</span><span class="mono">Прайс замовника: ${clientPrice} ${esc(cur)}</span></div>
+              ${selected ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;">
+                <div class="field" style="margin:0;"><label>Кількість</label><input type="number" inputmode="decimal" value="${esc(selected.quantity)}" onchange="setSupabaseProposalItemField('${esc(item.id)}','quantity',this.value)" ${disabled}></div>
+                <div class="field" style="margin:0;"><label>Ціна в пропозиції</label><input type="number" inputmode="decimal" value="${esc(selected.price)}" onchange="setSupabaseProposalItemField('${esc(item.id)}','price',this.value)" ${disabled}></div>
+                <div class="field" style="margin:0;"><label>Примітка</label><input value="${esc(selected.note || "")}" onchange="setSupabaseProposalItemField('${esc(item.id)}','note',this.value)" ${disabled}></div>
+              </div>` : ""}
+            </div>
+          </div>`;
+        }).join("") || `<div class="empty-slot">За пошуком нічого не знайдено.</div>`}
+      </div>
+      <div class="room-stats" style="grid-template-columns:1fr;margin-top:12px;"><div class="mini-stat"><div class="mini-stat-label">РАЗОМ</div><div class="mini-stat-val amber mono">${fmtMoney(total, mainCurrency())}</div></div></div>
+      <div class="modal-actions"><button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button><button class="amber-btn" onclick="saveSupabaseProposal()" ${disabled}>${saving ? "Зберігаємо..." : "Зберегти"}</button></div>
+    ` : `<div class="empty-slot">Обʼєкт Supabase не знайдено.</div><div class="modal-actions"><button class="ghost-btn" onclick="closeModal()">Закрити</button></div>`}
+    `;
+  }
+
   if (t === "supabaseRoom") {
     const editing = state.modal.id ? findSupabaseReadRoom(state.modal.id) : null;
     const creating = !editing && !!state.supabaseRoomCreating;
@@ -7244,7 +7393,7 @@ Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, openSignOutCo
   submitPriceCategory, submitPriceUnit, deletePriceUnit,
   setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem, setSupabaseWorkSearchQuery, openSupabaseWorkSearchDropdown, pickSupabaseWorkPriceItem,
   openMaterialsReportPreview, saveMaterialsReport, viewMaterialReport,
-  openActSelect, toggleActWorkSelect, toggleActRoomSelectAll, goToActPreview, backToActSelect, saveAct, viewAct });
+  openActSelect, toggleActWorkSelect, toggleActRoomSelectAll, goToActPreview, backToActSelect, saveAct, viewAct, openSupabaseProposalModal, setSupabaseProposalSearch, toggleSupabaseProposalItem, setSupabaseProposalItemField, saveSupabaseProposal });
 
 applyTheme(state.data.settings.theme);
 render();
