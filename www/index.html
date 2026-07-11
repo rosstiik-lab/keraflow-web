@@ -971,15 +971,53 @@ async function signUpWithEmail() {
   else render();
 }
 
+function resetLocalAppStateAfterSignOut() {
+  state.nav = "objects";
+  state.selectedObjId = null;
+  state.selectedRoomId = null;
+  state.selectedZoneId = null;
+  state.selectedClientId = null;
+  state.quick = "Робота";
+  state.objSearch = "";
+  state.priceSearch = "";
+  state.selectedPriceCategory = "all";
+  state.openActionMenuId = null;
+  state.expandedReportIds = {};
+  state.notesQuery = "";
+  state.selectedNoteId = null;
+  state.selectedNotebookCategory = "all";
+  state.notebookSearch = "";
+  state.selectedWorkerId = null;
+  state.workerSearch = "";
+  state.workerView = "list";
+  state.activeTimesheetWorkerId = null;
+  state.fixedTimesheetWorkerIds = [];
+  state.modal = null;
+  state.supabaseSelectedObjId = null;
+}
+
 async function signOut() {
+  state.modal = null;
   await supabaseClient.auth.signOut();
+  resetLocalAppStateAfterSignOut();
   state.authUser = null;
   state.authWarnings = [];
+  state.authMessage = "";
+  state.authMessageType = "";
   state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
   state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
   state.supabaseCloudExporting = false;
   state.supabaseCloudExportReport = "";
+  state.supabaseImportPreviewReport = "";
+  state.supabaseImportInProgress = false;
+  state.supabaseImportBlocked = false;
+  state.supabaseAutoStartedForUserId = null;
   disableSupabaseReadMode(false);
+  render();
+}
+
+function openSignOutConfirm() {
+  state.modal = { type: "signOutConfirm" };
   render();
 }
 
@@ -2327,7 +2365,7 @@ function render() {
   }
   app.innerHTML = `
     ${renderSidebar()}
-    <div class="main">${renderAuthTopbar()}${renderAuthWarnings()}${renderPage()}</div>
+    <div class="main">${renderAuthWarnings()}${renderPage()}</div>
     ${renderBottomBar()}
     ${renderModal()}
   `;
@@ -4555,6 +4593,24 @@ function renderSupabaseCloudPreview() {
   `;
 }
 
+function renderAccountSettings() {
+  const email = state.authUser && state.authUser.email ? state.authUser.email : "Не увійшли";
+  return `
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="group-label" style="margin-top:0;">Обліковий запис</div>
+      <div class="field"><label>Email користувача</label><input value="${esc(email)}" readonly></div>
+      <div class="work-row" style="align-items:center;margin-bottom:14px;">
+        <div style="flex:1">
+          <div class="w-name">Статус авторизації</div>
+          <div class="w-meta">Підключено до Supabase</div>
+        </div>
+        <span class="pct-pill mono" style="font-size:10px;padding:3px 8px;background:var(--green);color:#06120B;">Активно</span>
+      </div>
+      <button class="ghost-btn" onclick="openSignOutConfirm()">Вийти з акаунта</button>
+    </div>
+  `;
+}
+
 function renderSupabaseCloudSettings() {
   const counts = countLocalDataForSupabase(state.data);
   const email = state.authUser && state.authUser.email ? state.authUser.email : "Не увійшли";
@@ -4609,6 +4665,7 @@ function renderSettings() {
   return `
     <div class="eyebrow">Система</div>
     <div class="h1" style="margin-bottom:18px;">Налаштування</div>
+    ${renderAccountSettings()}
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Вигляд</div>
       <div class="view-switch">
@@ -4676,6 +4733,15 @@ function renderModal() {
   if (!state.modal) return "";
   const t = state.modal.type;
   let body = "";
+  if (t === "signOutConfirm") {
+    body = `
+      <h3>Вийти з акаунта?</h3>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+        <button class="amber-btn" onclick="signOut()">Вийти</button>
+      </div>
+    `;
+  }
   if (t === "supabaseObject") {
     const editing = state.modal.id ? findSupabaseReadObject(state.modal.id) : null;
     const creating = !editing && !!state.supabaseObjectCreating;
@@ -6996,7 +7062,7 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, importLocalPriceToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, openSignOutConfirm, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, importLocalPriceToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, submitSupabaseNewPriceItem: submitSupabasePriceItem, submitSupabasePriceItem, deleteSupabasePriceItem, submitSupabaseNewPriceCategory, submitSupabasePriceCategoryEdit, deleteSupabasePriceCategory, submitSupabaseNewPriceUnit, submitSupabasePriceUnitEdit, deleteSupabasePriceUnit, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
