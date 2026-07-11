@@ -2281,11 +2281,18 @@ async function submitClientPriceOverride() {
     if (state.supabaseReadMode) {
       const user = state.authUser;
       if (!user) throw new Error("Потрібно увійти в Supabase.");
-      const { data, error } = await supabaseClient
-        .from("client_price_overrides")
-        .upsert({ owner_id: user.id, client_id: clientId, price_item_id: priceItemId, price }, { onConflict: "owner_id,client_id,price_item_id" })
-        .select("id,price")
-        .single();
+      const existingOverride = getClientPriceOverride(client, priceItemId);
+      const query = existingOverride
+        ? supabaseClient
+            .from("client_price_overrides")
+            .update({ price })
+            .eq("owner_id", user.id)
+            .eq("client_id", clientId)
+            .eq("price_item_id", priceItemId)
+        : supabaseClient
+            .from("client_price_overrides")
+            .insert({ owner_id: user.id, client_id: clientId, price_item_id: priceItemId, price });
+      const { data, error } = await query.select("id,price").single();
       if (error) throw error;
       applyClientPriceOverrideLocal(client, priceItemId, price, data && data.id);
     } else {
@@ -2300,19 +2307,28 @@ async function submitClientPriceOverride() {
 }
 async function resetClientPriceOverride() {
   const modal = state.modal || {};
-  const client = getClient(modal.clientId) || findSupabaseReadClient(modal.clientId);
+  await resetClientPriceOverrideFor(modal.clientId, modal.priceItemId, true);
+}
+async function resetClientPriceOverrideFor(clientId, priceItemId, closeAfterSuccess) {
+  const client = getClient(clientId) || findSupabaseReadClient(clientId);
   if (!client || state.clientPriceOverrideSaving) return;
   if (!confirm("Повернути основну ціну для цієї позиції? Індивідуальна ціна буде видалена.")) return;
   state.clientPriceOverrideSaving = true; state.clientPriceOverrideError = ""; render();
   try {
     if (state.supabaseReadMode) {
       const user = state.authUser; if (!user) throw new Error("Потрібно увійти в Supabase.");
-      const { error } = await supabaseClient.from("client_price_overrides").delete().eq("owner_id", user.id).eq("client_id", modal.clientId).eq("price_item_id", modal.priceItemId);
+      const { error } = await supabaseClient
+        .from("client_price_overrides")
+        .delete()
+        .eq("owner_id", user.id)
+        .eq("client_id", clientId)
+        .eq("price_item_id", priceItemId);
       if (error) throw error;
     }
-    client.priceOverrides = (client.priceOverrides || []).filter(o => o.priceItemId !== modal.priceItemId);
+    client.priceOverrides = (client.priceOverrides || []).filter(o => o.priceItemId !== priceItemId);
     if (!state.supabaseReadMode) saveData();
-    state.modal = null;
+    if (closeAfterSuccess) state.modal = null;
+    if (state.openActionMenuId === `client-price-${clientId}-${priceItemId}`) state.openActionMenuId = null;
   } catch (error) {
     state.clientPriceOverrideError = `Не вдалося повернути основну ціну: ${error.message || error}`;
   } finally { state.clientPriceOverrideSaving = false; render(); }
@@ -3393,8 +3409,17 @@ function clientPriceOverrideRowHtml(c, p) {
       <div class="w-name">${esc(p.name)}</div>
       <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">Основний прайс: ${p.price} ${mainCurrency()}</span><span class="mono">Ціна замовника: ${effectivePrice} ${mainCurrency()}</span>${override ? `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Основна ціна</span>`}</div>
     </div>
-    <button class="ghost-btn" onclick="openClientPriceOverrideModal('${c.id}','${p.id}')">Редагувати</button>
+    <button class="w-del" title="Опції" onclick="toggleActionMenu('client-price-${esc(c.id)}-${esc(p.id)}', event)">⋮</button>
+    ${state.openActionMenuId === `client-price-${c.id}-${p.id}` ? clientPriceActionMenuHtml(c.id, p.id, !!override) : ""}
   </div>`;
+}
+function clientPriceActionMenuHtml(clientId, priceItemId, hasOverride) {
+  return `
+    <div class="obj-menu" onclick="event.stopPropagation()">
+      <button class="obj-menu-item" onclick="closeActionMenu(); openClientPriceOverrideModal('${esc(clientId)}','${esc(priceItemId)}')">Змінити ціну</button>
+      ${hasOverride ? `<div class="obj-menu-sep"></div><button class="obj-menu-item danger" onclick="closeActionMenu(); resetClientPriceOverrideFor('${esc(clientId)}','${esc(priceItemId)}', false)">Повернути основну ціну</button>` : ""}
+    </div>
+  `;
 }
 function renderWorkers() {
   return `
@@ -4073,7 +4098,7 @@ function renderSupabaseClientPriceSection(client) {
 function supabaseClientPriceRowHtml(client, item) {
   const override = getClientPriceOverride(client, item.id);
   const effectivePrice = override ? override.price : item.price;
-  return `<div class="work-row"><div style="flex:1"><div class="w-name">${esc(item.title)}</div><div class="w-meta"><span class="mono">${esc(item.unit || "—")}</span><span class="mono">Основний прайс: ${item.price} ${esc(item.currency || "")}</span><span class="mono">Ціна замовника: ${effectivePrice} ${esc(item.currency || "")}</span>${override ? `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Основна ціна</span>`}</div></div><button class="ghost-btn" onclick="openClientPriceOverrideModal('${client.id}','${item.id}')">Редагувати</button></div>`;
+  return `<div class="work-row"><div style="flex:1"><div class="w-name">${esc(item.title)}</div><div class="w-meta"><span class="mono">${esc(item.unit || "—")}</span><span class="mono">Основний прайс: ${item.price} ${esc(item.currency || "")}</span><span class="mono">Ціна замовника: ${effectivePrice} ${esc(item.currency || "")}</span>${override ? `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Основна ціна</span>`}</div></div><button class="w-del" title="Опції" onclick="toggleActionMenu('client-price-${esc(client.id)}-${esc(item.id)}', event)">⋮</button>${state.openActionMenuId === `client-price-${client.id}-${item.id}` ? clientPriceActionMenuHtml(client.id, item.id, !!override) : ""}</div>`;
 }
 
 function renderSupabaseReadClients() {
@@ -7209,7 +7234,7 @@ function submitAdvance() {
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, openSignOutConfirm, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, importLocalPriceToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, submitSupabaseNewPriceItem: submitSupabasePriceItem, submitSupabasePriceItem, deleteSupabasePriceItem, submitSupabaseNewPriceCategory, submitSupabasePriceCategoryEdit, deleteSupabasePriceCategory, submitSupabaseNewPriceUnit, submitSupabasePriceUnitEdit, deleteSupabasePriceUnit, deleteWork, submitObject, submitRoom, submitZone, submitWork,
-  deletePriceItem, submitPrice, deleteClient, submitClient, selectClient, setClientPriceSearch, openClientPriceOverrideModal, submitClientPriceOverride, resetClientPriceOverride,
+  deletePriceItem, submitPrice, deleteClient, submitClient, selectClient, setClientPriceSearch, openClientPriceOverrideModal, submitClientPriceOverride, resetClientPriceOverride, resetClientPriceOverrideFor,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
   deleteMaterialItem, deleteAdvance,
