@@ -548,6 +548,7 @@ input, select { font-family: inherit; }
 ========================================================= */
 
 const STORAGE_KEY = "keraflow-data";
+const CLOUD_MODE_PREFERENCE_KEY = "keraflow-cloud-mode-preference";
 
 const SUPABASE_URL = "https://wrtrxsiyzocinisadhvk.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_iQGaV9lflm8ZUaPcVdHGFg_8vzw6K_3";
@@ -698,6 +699,8 @@ let state = {
   supabaseSelectedObjId: null,
   supabaseReadLoading: false,
   supabaseReadError: "",
+  supabaseCloudPreference: loadCloudModePreference(),
+  supabaseAutoStartedForUserId: null,
 };
 
 function migrateData(data) {
@@ -810,6 +813,43 @@ function saveData() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data)); } catch (e) {}
 }
 
+function loadCloudModePreference() {
+  try {
+    const value = localStorage.getItem(CLOUD_MODE_PREFERENCE_KEY);
+    return value === "local" || value === "cloud" ? value : null;
+  } catch (e) {}
+  return null;
+}
+function setCloudModePreference(value) {
+  state.supabaseCloudPreference = value === "local" ? "local" : "cloud";
+  try { localStorage.setItem(CLOUD_MODE_PREFERENCE_KEY, state.supabaseCloudPreference); } catch (e) {}
+}
+function shouldAutoEnableSupabaseCloudMode() {
+  if (!state.authUser) return false;
+  return (state.supabaseCloudPreference || "cloud") === "cloud";
+}
+async function maybeAutoEnableSupabaseCloudMode() {
+  const user = state.authUser;
+  if (!user || !shouldAutoEnableSupabaseCloudMode()) return;
+  if (state.supabaseReadMode || state.supabaseReadLoading) return;
+  if (state.supabaseAutoStartedForUserId === user.id) return;
+  state.supabaseAutoStartedForUserId = user.id;
+  await enableSupabaseReadMode(false);
+}
+function enableSupabaseCloudModeFromSettings() {
+  setCloudModePreference("cloud");
+  state.supabaseAutoStartedForUserId = null;
+  enableSupabaseReadMode();
+}
+function refreshSupabaseCloudData() {
+  enableSupabaseReadMode();
+}
+function disableSupabaseCloudModeFromSettings() {
+  setCloudModePreference("local");
+  state.supabaseAutoStartedForUserId = state.authUser ? state.authUser.id : null;
+  disableSupabaseReadMode();
+}
+
 
 /* ---------- Supabase Auth ---------- */
 async function initAuth() {
@@ -821,6 +861,7 @@ async function initAuth() {
   state.authUser = data && data.session ? data.session.user : null;
   state.authInitialized = true;
   if (state.authUser) await verifyAuthRecords();
+  if (state.authUser) await maybeAutoEnableSupabaseCloudMode();
   render();
 }
 
@@ -830,9 +871,13 @@ supabaseClient.auth.onAuthStateChange(async (_event, session) => {
   if (!state.authUser) {
     state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
     state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
+    state.supabaseAutoStartedForUserId = null;
     disableSupabaseReadMode(false);
   }
-  if (state.authInitialized && state.authUser) await verifyAuthRecords();
+  if (state.authInitialized && state.authUser) {
+    await verifyAuthRecords();
+    await maybeAutoEnableSupabaseCloudMode();
+  }
   if (state.authInitialized) render();
 });
 
@@ -945,12 +990,17 @@ function renderAuthScreen() {
 
 function renderAuthTopbar() {
   const email = state.authUser && state.authUser.email ? state.authUser.email : "";
-  return `<div class="auth-topbar"><div class="auth-user">Користувач: <strong>${esc(email)}</strong></div><button class="ghost-btn" onclick="signOut()">Вийти</button></div>`;
+  const modeLabel = state.supabaseReadMode ? "Cloud: Supabase" : "Mode: Local";
+  return `<div class="auth-topbar"><div class="auth-user">Користувач: <strong>${esc(email)}</strong> <span class="count-badge" style="margin-left:8px;">${esc(modeLabel)}</span></div><button class="ghost-btn" onclick="signOut()">Вийти</button></div>`;
 }
 
 function renderAuthWarnings() {
-  if (!state.authWarnings || !state.authWarnings.length) return "";
-  return `<div class="auth-warning"><strong>Попередження Supabase:</strong><br>${state.authWarnings.map(esc).join("<br>")}</div>`;
+  const messages = [];
+  if (state.supabaseReadLoading) messages.push("Завантажуємо хмарні дані...");
+  if (state.supabaseReadError) messages.push(state.supabaseReadError);
+  if (state.authWarnings && state.authWarnings.length) messages.push(...state.authWarnings);
+  if (!messages.length) return "";
+  return `<div class="auth-warning"><strong>Supabase:</strong><br>${messages.map(esc).join("<br>")}</div>`;
 }
 
 /* ---------- Company profile ---------- */
@@ -3415,7 +3465,7 @@ function buildSupabaseReadData(clients, objects, rooms, works) {
   return { clients: Array.from(clientsById.values()), objects: normalizedObjects };
 }
 
-async function enableSupabaseReadMode() {
+async function enableSupabaseReadMode(shouldRender) {
   const user = state.authUser;
   if (!user) {
     state.supabaseReadMode = false;
@@ -3435,14 +3485,14 @@ async function enableSupabaseReadMode() {
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "Помилка хмарного перегляду Supabase: увійдіть у Supabase перед увімкненням хмарного перегляду.";
-    render();
+    if (shouldRender !== false) render();
     return;
   }
 
   const ownerId = user.id;
   state.supabaseReadLoading = true;
   state.supabaseReadError = "";
-  render();
+  if (shouldRender !== false) render();
 
   try {
     const [clients, objects, rooms, works] = await Promise.all([
@@ -3490,7 +3540,7 @@ async function enableSupabaseReadMode() {
     state.supabaseReadError = `Помилка хмарного перегляду Supabase: ${error.message || error}`;
     console.error("Supabase read mode failed", error);
   }
-  render();
+  if (shouldRender !== false) render();
 }
 
 function disableSupabaseReadMode(shouldRender) {
@@ -4127,6 +4177,7 @@ function renderSupabaseCloudSettings() {
   const counts = countLocalDataForSupabase(state.data);
   const email = state.authUser && state.authUser.email ? state.authUser.email : "Не увійшли";
   const status = state.supabaseStatus || {};
+  const modeMessage = state.supabaseReadMode ? "Хмарний режим увімкнено. Дані читаються і записуються в Supabase." : "Локальний режим увімкнено. Дані зберігаються тільки в цьому браузері.";
   return `
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Supabase / Хмарне збереження</div>
@@ -4148,13 +4199,15 @@ function renderSupabaseCloudSettings() {
       <div class="btn-row">
         <button class="ghost-btn" onclick="checkLocalDataForSupabase()">Перевірити локальні дані</button>
         <button class="ghost-btn" onclick="checkSupabaseCloudData()" ${(state.supabaseCloudPreview && state.supabaseCloudPreview.loading) ? "disabled" : ""}>${state.supabaseCloudPreview && state.supabaseCloudPreview.loading ? "Перевіряємо..." : "Перевірити хмарні дані"}</button>
-        <button class="ghost-btn" onclick="enableSupabaseReadMode()" ${(state.supabaseReadLoading || state.supabaseReadMode) ? "disabled" : ""}>${state.supabaseReadLoading ? "Завантажуємо..." : "Увімкнути хмарний перегляд"}</button>
-        <button class="ghost-btn" onclick="disableSupabaseReadMode()" ${(!state.supabaseReadMode && !state.supabaseReadData && !state.supabaseReadError) ? "disabled" : ""}>Вимкнути хмарний перегляд</button>
+        <button class="ghost-btn" onclick="enableSupabaseCloudModeFromSettings()" ${state.supabaseReadLoading ? "disabled" : ""}>Увімкнути хмарний режим</button>
+        <button class="ghost-btn" onclick="disableSupabaseCloudModeFromSettings()" ${state.supabaseReadLoading ? "disabled" : ""}>Вимкнути хмарний режим</button>
+        <button class="ghost-btn" onclick="refreshSupabaseCloudData()" ${state.supabaseReadLoading ? "disabled" : ""}>Оновити хмарні дані</button>
         <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${(state.supabaseImportInProgress || state.supabaseImportBlocked) ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase"}</button>
       </div>
       ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
+      ${state.supabaseReadLoading ? `<div class="auth-message ok" style="margin-top:12px;">Завантажуємо хмарні дані...</div>` : ""}
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-top:12px;">${esc(state.supabaseReadError)}</div>` : ""}
-      ${state.supabaseReadMode ? `<div class="auth-message ok" style="margin-top:12px;">Хмарний перегляд Supabase увімкнено. Відкрийте сторінку Обʼєкти.</div>` : ""}
+      <div class="auth-message ${state.supabaseReadMode ? "ok" : ""}" style="margin-top:12px;">${esc(modeMessage)}</div>
       ${renderSupabaseCloudPreview()}
     </div>
   `;
@@ -4246,11 +4299,11 @@ function renderModal() {
     <h3>${editing ? "Редагувати обʼєкт Supabase" : "Новий обʼєкт Supabase"}</h3>
     ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
     ${(!state.modal.id || editing) ? `
-      <div class="field"><label>name</label><input id="supabase-object-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
-      <div class="field"><label>address</label><input id="supabase-object-address" value="${esc(editing ? editing.address : "")}" ${disabled}></div>
-      <div class="field"><label>status</label><select id="supabase-object-status" ${disabled}>${statusOptions}</select></div>
+      <div class="field"><label>Назва</label><input id="supabase-object-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
+      <div class="field"><label>Адреса</label><input id="supabase-object-address" value="${esc(editing ? editing.address : "")}" ${disabled}></div>
+      <div class="field"><label>Статус</label><select id="supabase-object-status" ${disabled}>${statusOptions}</select></div>
       <div class="field"><label>Клієнт</label><select id="supabase-object-client-id" ${disabled}><option value="">— без клієнта —</option>${clientOptions}</select></div>
-      <div class="field"><label>notes</label><textarea id="supabase-object-notes" rows="3" ${disabled}>${esc(editing ? (editing.notes || "") : "")}</textarea></div>
+      <div class="field"><label>Примітка</label><textarea id="supabase-object-notes" rows="3" ${disabled}>${esc(editing ? (editing.notes || "") : "")}</textarea></div>
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
         <button class="amber-btn" onclick="${editing ? "submitSupabaseObjectEdit()" : "submitSupabaseNewObject()"}" ${disabled}>${creating ? "Створюємо..." : (saving ? "Зберігаємо..." : "Зберегти")}</button>
@@ -4272,11 +4325,11 @@ function renderModal() {
     <h3>${editing ? "Редагувати клієнта Supabase" : "Новий клієнт Supabase"}</h3>
     ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
     ${(!state.modal.id || editing) ? `
-      <div class="field"><label>name</label><input id="supabase-client-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
-      <div class="field"><label>phone</label><input id="supabase-client-phone" value="${esc(editing ? (editing.phone || "") : "")}" ${disabled}></div>
-      <div class="field"><label>email</label><input id="supabase-client-email" value="${esc(editing ? (editing.email || "") : "")}" ${disabled}></div>
-      <div class="field"><label>address</label><input id="supabase-client-address" value="${esc(editing ? (editing.address || "") : "")}" ${disabled}></div>
-      <div class="field"><label>note</label><textarea id="supabase-client-note" rows="3" ${disabled}>${esc(editing ? (editing.note || "") : "")}</textarea></div>
+      <div class="field"><label>Імʼя</label><input id="supabase-client-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
+      <div class="field"><label>Телефон</label><input id="supabase-client-phone" value="${esc(editing ? (editing.phone || "") : "")}" ${disabled}></div>
+      <div class="field"><label>Email</label><input id="supabase-client-email" value="${esc(editing ? (editing.email || "") : "")}" ${disabled}></div>
+      <div class="field"><label>Адреса</label><input id="supabase-client-address" value="${esc(editing ? (editing.address || "") : "")}" ${disabled}></div>
+      <div class="field"><label>Примітка</label><textarea id="supabase-client-note" rows="3" ${disabled}>${esc(editing ? (editing.note || "") : "")}</textarea></div>
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
         <button class="amber-btn" onclick="${editing ? "submitSupabaseClientEdit()" : "submitSupabaseNewClient()"}" ${disabled}>${creating ? "Створюємо..." : (saving ? "Зберігаємо..." : "Зберегти")}</button>
