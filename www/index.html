@@ -3409,7 +3409,7 @@ function clientPriceOverrideRowHtml(c, p) {
   return `<div class="work-row">
     <div style="flex:1">
       <div class="w-name">${esc(p.name)}</div>
-      <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">Основний прайс: ${p.price} ${mainCurrency()}</span><span class="mono">Ціна замовника: ${effectivePrice} ${mainCurrency()}</span>${override ? `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Основна ціна</span>`}</div>
+      <div class="w-meta"><span class="mono">${esc(p.unit)}</span><span class="mono">Основний прайс: ${p.price} ${mainCurrency()}</span><span class="mono">Ціна замовника: ${effectivePrice} ${mainCurrency()}</span>${override ? `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Основна</span>`}</div>
     </div>
     <button class="w-del" title="Опції" onclick="toggleActionMenu('client-price-${esc(c.id)}-${esc(p.id)}', event)">⋮</button>
     ${state.openActionMenuId === `client-price-${c.id}-${p.id}` ? clientPriceActionMenuHtml(c.id, p.id, !!override) : ""}
@@ -4143,7 +4143,7 @@ function renderSupabaseClientPriceSection(client) {
 function supabaseClientPriceRowHtml(client, item) {
   const override = getClientPriceOverride(client, item.id);
   const effectivePrice = override ? override.price : item.price;
-  return `<div class="work-row"><div style="flex:1"><div class="w-name">${esc(item.title)}</div><div class="w-meta"><span class="mono">${esc(item.unit || "—")}</span><span class="mono">Основний прайс: ${item.price} ${esc(item.currency || "")}</span><span class="mono">Ціна замовника: ${effectivePrice} ${esc(item.currency || "")}</span>${override ? `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Основна ціна</span>`}</div></div><button class="w-del" title="Опції" onclick="toggleActionMenu('client-price-${esc(client.id)}-${esc(item.id)}', event)">⋮</button>${state.openActionMenuId === `client-price-${client.id}-${item.id}` ? clientPriceActionMenuHtml(client.id, item.id, !!override) : ""}</div>`;
+  return `<div class="work-row"><div style="flex:1"><div class="w-name">${esc(item.title)}</div><div class="w-meta"><span class="mono">${esc(item.unit || "—")}</span><span class="mono">Основний прайс: ${item.price} ${esc(item.currency || "")}</span><span class="mono">Ціна замовника: ${effectivePrice} ${esc(item.currency || "")}</span>${override ? `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Індивідуальна</span>` : `<span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Основна</span>`}</div></div><button class="w-del" title="Опції" onclick="toggleActionMenu('client-price-${esc(client.id)}-${esc(item.id)}', event)">⋮</button>${state.openActionMenuId === `client-price-${client.id}-${item.id}` ? clientPriceActionMenuHtml(client.id, item.id, !!override) : ""}</div>`;
 }
 
 function renderSupabaseReadClients() {
@@ -4412,8 +4412,8 @@ function toggleSupabaseProposalItem(priceItemId) {
     const obj = findSupabaseReadObject(state.modal.id);
     const item = ((state.supabasePriceData && state.supabasePriceData.items) || []).find(p => p.id === priceItemId);
     if (!item || !obj) return;
-    const clientPrice = resolveSupabaseClientPrice(obj.clientId, item.id, item.price);
-    items.push({ priceItemId: item.id, sourcePriceItemId: item.id, title: item.title, unit: item.unit || "", quantity: 0, price: clientPrice, currency: item.currency || mainCurrency(), note: "", basePriceSnapshot: item.price, clientPriceSnapshot: clientPrice, sortOrder: items.length });
+    const clientPrice = resolveSupabaseClientPriceDetails(obj.clientId, item.id, item.price);
+    items.push({ priceItemId: item.id, sourcePriceItemId: item.id, title: item.title, unit: item.unit || "", quantity: 0, price: clientPrice.price, currency: item.currency || mainCurrency(), note: "", basePriceSnapshot: item.price, clientPriceSnapshot: clientPrice.clientPriceSnapshot, sortOrder: items.length });
   }
   render();
 }
@@ -4428,14 +4428,52 @@ async function saveSupabaseProposal() {
   try {
     let proposal = obj.proposal;
     if (!proposal) {
-      const { data, error } = await supabaseClient.from("proposals").insert({ owner_id:user.id, object_id:obj.id, status:"draft" }).select("id,object_id,status,created_at,updated_at").single();
-      if (error) throw error; proposal = { id:data.id, objectId:data.object_id, status:data.status, createdAt:data.created_at, updatedAt:data.updated_at, items:[] }; obj.proposal = proposal;
+      const { data: existingProposal, error: existingError } = await supabaseClient
+        .from("proposals")
+        .select("id,object_id,status,created_at,updated_at")
+        .eq("owner_id", user.id)
+        .eq("object_id", obj.id)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existingProposal) {
+        const { data: existingItems, error: existingItemsError } = await supabaseClient
+          .from("proposal_items")
+          .select("id,source_price_item_id,title,unit,quantity,price,currency,note,base_price_snapshot,client_price_snapshot,sort_order")
+          .eq("owner_id", user.id)
+          .eq("proposal_id", existingProposal.id);
+        if (existingItemsError) throw existingItemsError;
+        proposal = { id:existingProposal.id, objectId:existingProposal.object_id, status:existingProposal.status, createdAt:existingProposal.created_at, updatedAt:existingProposal.updated_at, items:(existingItems || []).map(row => ({ id:row.id, sourcePriceItemId:row.source_price_item_id, title:row.title, unit:row.unit||"", quantity:Number(row.quantity)||0, price:Number(row.price)||0, currency:row.currency||"", note:row.note||"", basePriceSnapshot:row.base_price_snapshot == null ? null : Number(row.base_price_snapshot), clientPriceSnapshot:row.client_price_snapshot == null ? null : Number(row.client_price_snapshot), sortOrder:Number(row.sort_order)||0 })) };
+      } else {
+        const { data, error } = await supabaseClient.from("proposals").insert({ owner_id:user.id, object_id:obj.id, status:"draft" }).select("id,object_id,status,created_at,updated_at").single();
+        if (error) throw error;
+        proposal = { id:data.id, objectId:data.object_id, status:data.status, createdAt:data.created_at, updatedAt:data.updated_at, items:[] };
+      }
+      obj.proposal = proposal;
     }
-    await supabaseClient.from("proposal_items").delete().eq("proposal_id", proposal.id).eq("owner_id", user.id);
-    const rows = draftItems.map(it => ({ owner_id:user.id, proposal_id:proposal.id, source_price_item_id:it.sourcePriceItemId || it.priceItemId || null, title:it.title, unit:it.unit, quantity:it.quantity, price:it.price, currency:it.currency, note:it.note, base_price_snapshot:it.basePriceSnapshot, client_price_snapshot:it.clientPriceSnapshot, sort_order:it.sortOrder }));
-    const { data, error } = await supabaseClient.from("proposal_items").insert(rows).select("id,source_price_item_id,title,unit,quantity,price,currency,note,base_price_snapshot,client_price_snapshot,sort_order");
-    if (error) throw error;
-    proposal.items = (data || []).map(row => ({ id:row.id, sourcePriceItemId:row.source_price_item_id, title:row.title, unit:row.unit||"", quantity:Number(row.quantity)||0, price:Number(row.price)||0, currency:row.currency||"", note:row.note||"", basePriceSnapshot:row.base_price_snapshot == null ? null : Number(row.base_price_snapshot), clientPriceSnapshot:row.client_price_snapshot == null ? null : Number(row.client_price_snapshot), sortOrder:Number(row.sort_order)||0 })).sort((a,b)=>a.sortOrder-b.sortOrder);
+
+    const proposalItemFromRow = row => ({ id:row.id, sourcePriceItemId:row.source_price_item_id, title:row.title, unit:row.unit||"", quantity:Number(row.quantity)||0, price:Number(row.price)||0, currency:row.currency||"", note:row.note||"", basePriceSnapshot:row.base_price_snapshot == null ? null : Number(row.base_price_snapshot), clientPriceSnapshot:row.client_price_snapshot == null ? null : Number(row.client_price_snapshot), sortOrder:Number(row.sort_order)||0 });
+    const savedItems = [];
+    const existingItemIds = new Set((proposal.items || []).map(it => it.id).filter(Boolean));
+    const keptItemIds = new Set();
+    for (const it of draftItems) {
+      const row = { owner_id:user.id, proposal_id:proposal.id, source_price_item_id:it.sourcePriceItemId || it.priceItemId || null, title:it.title, unit:it.unit, quantity:it.quantity, price:it.price, currency:it.currency, note:it.note, base_price_snapshot:it.basePriceSnapshot, client_price_snapshot:it.clientPriceSnapshot, sort_order:it.sortOrder };
+      if (it.id) {
+        keptItemIds.add(it.id);
+        const { data, error } = await supabaseClient.from("proposal_items").update(row).eq("id", it.id).eq("proposal_id", proposal.id).eq("owner_id", user.id).select("id,source_price_item_id,title,unit,quantity,price,currency,note,base_price_snapshot,client_price_snapshot,sort_order").single();
+        if (error) throw error;
+        savedItems.push(proposalItemFromRow(data));
+      } else {
+        const { data, error } = await supabaseClient.from("proposal_items").insert(row).select("id,source_price_item_id,title,unit,quantity,price,currency,note,base_price_snapshot,client_price_snapshot,sort_order").single();
+        if (error) throw error;
+        savedItems.push(proposalItemFromRow(data));
+      }
+    }
+    const deletedItemIds = [...existingItemIds].filter(id => !keptItemIds.has(id));
+    if (deletedItemIds.length) {
+      const { error } = await supabaseClient.from("proposal_items").delete().eq("proposal_id", proposal.id).eq("owner_id", user.id).in("id", deletedItemIds);
+      if (error) throw error;
+    }
+    proposal.items = savedItems.sort((a,b)=>a.sortOrder-b.sortOrder);
     state.modal = null;
   } catch (error) {
     state.modal.error = `Помилка збереження пропозиції: ${error.message || error}`;
@@ -7108,10 +7146,15 @@ async function deleteSupabasePriceItem(id) {
   }
 }
 
-function resolveSupabaseClientPrice(clientId, priceItemId, basePrice) {
+function resolveSupabaseClientPriceDetails(clientId, priceItemId, basePrice) {
   const client = clientId ? findSupabaseReadClient(clientId) : null;
   const override = getClientPriceOverride(client, priceItemId);
-  return override ? override.price : basePrice;
+  if (override) return { price: override.price, clientPriceSnapshot: override.price };
+  return { price: basePrice, clientPriceSnapshot: null };
+}
+
+function resolveSupabaseClientPrice(clientId, priceItemId, basePrice) {
+  return resolveSupabaseClientPriceDetails(clientId, priceItemId, basePrice).price;
 }
 
 async function submitSupabaseNewWork() {
