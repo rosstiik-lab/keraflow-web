@@ -681,6 +681,8 @@ let state = {
   supabaseImportInProgress: false,
   supabaseImportBlocked: false,
   supabaseCloudPreview: { loading: false, report: "", error: "", objects: [] },
+  supabaseCloudExporting: false,
+  supabaseCloudExportReport: "",
   supabaseReadMode: false,
   supabaseReadData: null,
   supabaseWorkUpdatingIds: {},
@@ -871,6 +873,8 @@ supabaseClient.auth.onAuthStateChange(async (_event, session) => {
   if (!state.authUser) {
     state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
     state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
+    state.supabaseCloudExporting = false;
+    state.supabaseCloudExportReport = "";
     state.supabaseAutoStartedForUserId = null;
     disableSupabaseReadMode(false);
   }
@@ -961,6 +965,8 @@ async function signOut() {
   state.authWarnings = [];
   state.supabaseStatus = { profileFound: false, appSettingsFound: false, profileError: "", appSettingsError: "" };
   state.supabaseCloudPreview = { loading: false, report: "", error: "", objects: [] };
+  state.supabaseCloudExporting = false;
+  state.supabaseCloudExportReport = "";
   disableSupabaseReadMode(false);
   render();
 }
@@ -3977,6 +3983,82 @@ async function readSupabaseRows(tableName, ownerId) {
   return Array.isArray(data) ? data : [];
 }
 
+function makeSupabaseBackupFilename(date) {
+  const pad = value => String(value).padStart(2, "0");
+  return `keraflow-supabase-backup-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}-${pad(date.getMinutes())}.json`;
+}
+
+function downloadJsonFile(filename, jsonText) {
+  const blob = new Blob([jsonText], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => {
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, 0);
+}
+
+async function exportSupabaseCloudBackup() {
+  const user = state.authUser;
+  if (!user) {
+    state.supabaseCloudExportReport = "Помилка експорту хмарних даних: увійдіть у Supabase перед експортом.";
+    render();
+    return;
+  }
+  if (state.supabaseCloudExporting) return;
+
+  const ownerId = user.id;
+  state.supabaseCloudExporting = true;
+  state.supabaseCloudExportReport = "";
+  render();
+
+  try {
+    const [clients, objects, rooms, works] = await Promise.all([
+      readSupabaseRows("clients", ownerId),
+      readSupabaseRows("objects", ownerId),
+      readSupabaseRows("object_rooms", ownerId),
+      readSupabaseRows("works", ownerId),
+    ]);
+    const exportedAt = new Date();
+    const backup = {
+      app: "KeraFlow",
+      type: "supabase-cloud-backup",
+      exportedAt: exportedAt.toISOString(),
+      user: {
+        id: user.id,
+        email: user.email || "",
+      },
+      counts: {
+        clients: clients.length,
+        objects: objects.length,
+        object_rooms: rooms.length,
+        works: works.length,
+      },
+      tables: {
+        clients,
+        objects,
+        object_rooms: rooms,
+        works,
+      },
+    };
+
+    downloadJsonFile(makeSupabaseBackupFilename(exportedAt), JSON.stringify(backup, null, 2));
+    state.supabaseCloudExportReport = `Хмарну резервну копію створено: ${clients.length} замовників, ${objects.length} обʼєктів, ${rooms.length} кімнат, ${works.length} робіт.`;
+  } catch (error) {
+    state.supabaseCloudExportReport = `Помилка експорту хмарних даних: ${error.message || error}`;
+    console.error("Supabase cloud export failed", error);
+  }
+
+  state.supabaseCloudExporting = false;
+  render();
+}
+
 async function checkSupabaseCloudData() {
   const user = state.authUser;
   if (!user) {
@@ -4199,6 +4281,8 @@ function renderSupabaseCloudSettings() {
   const hasCloudData = hasSupabaseCloudData();
   const importDisabled = state.supabaseImportInProgress || state.supabaseImportBlocked || hasCloudData;
   const importButtonText = hasCloudData ? "Імпорт уже виконано" : (state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт у Supabase");
+  const exportDisabled = state.supabaseCloudExporting || !state.authUser;
+  const exportButtonText = state.supabaseCloudExporting ? "Експортуємо..." : "Експорт хмарних даних";
   return `
     <div class="panel" style="margin-bottom:18px;">
       <div class="group-label" style="margin-top:0;">Supabase / Хмарне збереження</div>
@@ -4223,10 +4307,12 @@ function renderSupabaseCloudSettings() {
         <button class="ghost-btn" onclick="enableSupabaseCloudModeFromSettings()" ${state.supabaseReadLoading ? "disabled" : ""}>Увімкнути хмарний режим</button>
         <button class="ghost-btn" onclick="disableSupabaseCloudModeFromSettings()" ${state.supabaseReadLoading ? "disabled" : ""}>Вимкнути хмарний режим</button>
         <button class="ghost-btn" onclick="refreshSupabaseCloudData()" ${state.supabaseReadLoading ? "disabled" : ""}>Оновити хмарні дані</button>
+        <button class="ghost-btn" onclick="exportSupabaseCloudBackup()" ${exportDisabled ? "disabled" : ""}>${exportButtonText}</button>
         <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${importDisabled ? "disabled" : ""}>${importButtonText}</button>
       </div>
       ${hasCloudData ? `<div class="auth-message err" style="margin-top:12px;">У Supabase вже є хмарні дані. Повторний імпорт заблоковано, щоб не створити дублікати.</div>` : ""}
       ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
+      ${state.supabaseCloudExportReport ? `<div class="auth-message ${state.supabaseCloudExportReport.startsWith("Помилка") ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseCloudExportReport)}</div>` : ""}
       ${state.supabaseReadLoading ? `<div class="auth-message ok" style="margin-top:12px;">Завантажуємо хмарні дані...</div>` : ""}
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-top:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       <div class="auth-message ${state.supabaseReadMode ? "ok" : ""}" style="margin-top:12px;">${esc(modeMessage)}</div>
@@ -6186,7 +6272,7 @@ function submitAdvance() {
 }
 
 /* expose to inline handlers */
-Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
+Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
