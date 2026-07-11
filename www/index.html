@@ -692,6 +692,9 @@ let state = {
   supabaseObjectCreating: false,
   supabaseObjectSavingId: null,
   supabaseObjectDeletingIds: {},
+  supabaseClientCreating: false,
+  supabaseClientSavingId: null,
+  supabaseClientDeletingIds: {},
   supabaseSelectedObjId: null,
   supabaseReadLoading: false,
   supabaseReadError: "",
@@ -2265,7 +2268,7 @@ function renderBottomBar() {
 function renderPage() {
   switch (state.nav) {
     case "objects":   return renderObjects();
-    case "clients":   return renderClients();
+    case "clients":   return state.supabaseReadMode ? renderSupabaseReadClients() : renderClients();
     case "price":     return renderPrice();
     case "directory": return renderNotebook();
     case "workers":   return renderWorkers();
@@ -3426,6 +3429,9 @@ async function enableSupabaseReadMode() {
     state.supabaseObjectCreating = false;
     state.supabaseObjectSavingId = null;
     state.supabaseObjectDeletingIds = {};
+    state.supabaseClientCreating = false;
+    state.supabaseClientSavingId = null;
+    state.supabaseClientDeletingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "Помилка хмарного перегляду Supabase: увійдіть у Supabase перед увімкненням хмарного перегляду.";
@@ -3455,6 +3461,9 @@ async function enableSupabaseReadMode() {
     state.supabaseObjectCreating = false;
     state.supabaseObjectSavingId = null;
     state.supabaseObjectDeletingIds = {};
+    state.supabaseClientCreating = false;
+    state.supabaseClientSavingId = null;
+    state.supabaseClientDeletingIds = {};
     state.supabaseReadMode = true;
     state.supabaseReadLoading = false;
     state.supabaseReadError = "";
@@ -3473,6 +3482,9 @@ async function enableSupabaseReadMode() {
     state.supabaseObjectCreating = false;
     state.supabaseObjectSavingId = null;
     state.supabaseObjectDeletingIds = {};
+    state.supabaseClientCreating = false;
+    state.supabaseClientSavingId = null;
+    state.supabaseClientDeletingIds = {};
     state.supabaseSelectedObjId = null;
     state.supabaseReadLoading = false;
     state.supabaseReadError = `Помилка хмарного перегляду Supabase: ${error.message || error}`;
@@ -3493,6 +3505,9 @@ function disableSupabaseReadMode(shouldRender) {
   state.supabaseObjectCreating = false;
   state.supabaseObjectSavingId = null;
   state.supabaseObjectDeletingIds = {};
+  state.supabaseClientCreating = false;
+  state.supabaseClientSavingId = null;
+  state.supabaseClientDeletingIds = {};
   state.supabaseSelectedObjId = null;
   state.supabaseReadLoading = false;
   state.supabaseReadError = "";
@@ -3515,6 +3530,7 @@ function supabaseReadObjRowHtml(obj) {
       <div class="obj-row-name">${esc(obj.name)}</div>
       <div class="obj-row-addr">📍 ${esc(obj.address)}</div>
       <div class="obj-row-status">${esc(statusLabel)}</div>
+      ${obj.client ? `<div class="obj-row-addr">Клієнт: ${esc(obj.client.name)}</div>` : ""}
       <div class="obj-row-addr">Кімнат: ${obj.rooms.length} · Робіт: ${supabaseObjectWorksCount(obj)}</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
         <button class="ghost-btn" ${disabled ? "disabled" : `onclick="event.stopPropagation(); openModal('supabaseObject', ${esc(JSON.stringify(obj.id))})"`}>${saving ? "Зберігаємо..." : "Редагувати"}</button>
@@ -3545,6 +3561,49 @@ function findSupabaseReadObject(objectId) {
   const data = state.supabaseReadData || { objects: [] };
   const objects = Array.isArray(data.objects) ? data.objects : [];
   return objects.find(obj => obj.id === objectId) || null;
+}
+
+function findSupabaseReadClient(clientId) {
+  const data = state.supabaseReadData || { clients: [] };
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  return clients.find(client => client.id === clientId) || null;
+}
+
+function supabaseReadClientRowHtml(client) {
+  const saving = state.supabaseClientSavingId === client.id;
+  const deleting = !!state.supabaseClientDeletingIds[client.id];
+  const disabled = saving || deleting;
+  return `<div class="obj-row">
+    <div class="obj-row-icon">${svgIcon("clients", 18)}</div>
+    <div style="flex:1;min-width:0;">
+      <div class="obj-row-name">${esc(client.name || "Без імені")}</div>
+      <div class="obj-row-addr">Телефон: ${esc(client.phone || "—")}</div>
+      <div class="obj-row-addr">Email: ${esc(client.email || "—")}</div>
+      <div class="obj-row-addr">Адреса: ${esc(client.address || "—")}</div>
+      <div class="obj-row-addr">Примітка: ${esc(client.note || "—")}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+        <button class="ghost-btn" ${disabled ? "disabled" : `onclick="openModal('supabaseClient', ${esc(JSON.stringify(client.id))})"`}>${saving ? "Зберігаємо..." : "Редагувати"}</button>
+        <button class="ghost-btn" ${disabled ? "disabled" : `onclick="deleteSupabaseClient(${esc(JSON.stringify(client.id))})"`}>${deleting ? "Видаляємо..." : "Видалити"}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderSupabaseReadClients() {
+  const data = state.supabaseReadData || { clients: [] };
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="eyebrow">Замовники</div><div class="h1">Клієнти Supabase</div></div>
+        <div class="count-badge">${clients.length}</div>
+      </div>
+      <div class="auth-message ok" style="margin-bottom:12px;">Хмарний режим Supabase. Можна керувати клієнтами без зміни localStorage.</div>
+      ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+      ${clients.map(supabaseReadClientRowHtml).join("") || `<div class="empty-slot">У Supabase немає клієнтів для поточного користувача.</div>`}
+      <button class="dashed-btn" ${state.supabaseClientCreating ? "disabled" : ""} onclick="openModal('supabaseClient')">${state.supabaseClientCreating ? "Створюємо..." : "+ Додати клієнта"}</button>
+    </div>
+  `;
 }
 
 function findSupabaseReadRoom(roomId) {
@@ -3784,6 +3843,7 @@ function renderSupabaseReadObjectDetail() {
       </div>
       <div class="obj-row-addr" style="margin-bottom:6px;">📍 ${esc(obj.address)}</div>
       <div class="obj-row-status" style="margin-bottom:12px;">${esc(statusLabel)}</div>
+      ${obj.client ? `<div class="obj-row-addr" style="margin-bottom:12px;">Клієнт: ${esc(obj.client.name)}</div>` : ""}
       <div class="auth-message ok" style="margin-bottom:12px;">Хмарний режим Supabase. Можна керувати кімнатами та роботами без перезавантаження сторінки.</div>
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       ${rooms.map(supabaseReadRoomHtml).join("") || `<div class="empty-slot">У хмарного обʼєкта немає кімнат.</div>`}
@@ -4179,6 +4239,9 @@ function renderModal() {
     const disabled = (creating || saving) ? "disabled" : "";
     const selectedStatus = editing ? (editing.status || "active") : "active";
     const statusOptions = Object.entries(OBJ_STATUS).map(([key, item]) => `<option value="${esc(key)}" ${selectedStatus === key ? "selected" : ""}>${esc(item.label || key)}</option>`).join("");
+    const supabaseClients = Array.isArray(state.supabaseReadData && state.supabaseReadData.clients) ? state.supabaseReadData.clients : [];
+    const selectedClientId = editing ? (editing.clientId || "") : "";
+    const clientOptions = supabaseClients.map(client => `<option value="${esc(client.id)}" ${selectedClientId === client.id ? "selected" : ""}>${esc(client.name || "Без імені")}</option>`).join("");
     body = `
     <h3>${editing ? "Редагувати обʼєкт Supabase" : "Новий обʼєкт Supabase"}</h3>
     ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
@@ -4186,6 +4249,7 @@ function renderModal() {
       <div class="field"><label>name</label><input id="supabase-object-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
       <div class="field"><label>address</label><input id="supabase-object-address" value="${esc(editing ? editing.address : "")}" ${disabled}></div>
       <div class="field"><label>status</label><select id="supabase-object-status" ${disabled}>${statusOptions}</select></div>
+      <div class="field"><label>Клієнт</label><select id="supabase-object-client-id" ${disabled}><option value="">— без клієнта —</option>${clientOptions}</select></div>
       <div class="field"><label>notes</label><textarea id="supabase-object-notes" rows="3" ${disabled}>${esc(editing ? (editing.notes || "") : "")}</textarea></div>
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
@@ -4196,6 +4260,30 @@ function renderModal() {
       <div class="modal-actions">
         <button class="ghost-btn" onclick="closeModal()">Закрити</button>
       </div>
+    `}
+    `;
+  }
+  if (t === "supabaseClient") {
+    const editing = state.modal.id ? findSupabaseReadClient(state.modal.id) : null;
+    const creating = !editing && !!state.supabaseClientCreating;
+    const saving = !!(editing && state.supabaseClientSavingId === editing.id);
+    const disabled = (creating || saving) ? "disabled" : "";
+    body = `
+    <h3>${editing ? "Редагувати клієнта Supabase" : "Новий клієнт Supabase"}</h3>
+    ${state.supabaseReadError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabaseReadError)}</div>` : ""}
+    ${(!state.modal.id || editing) ? `
+      <div class="field"><label>name</label><input id="supabase-client-name" value="${esc(editing ? editing.name : "")}" ${disabled}></div>
+      <div class="field"><label>phone</label><input id="supabase-client-phone" value="${esc(editing ? (editing.phone || "") : "")}" ${disabled}></div>
+      <div class="field"><label>email</label><input id="supabase-client-email" value="${esc(editing ? (editing.email || "") : "")}" ${disabled}></div>
+      <div class="field"><label>address</label><input id="supabase-client-address" value="${esc(editing ? (editing.address || "") : "")}" ${disabled}></div>
+      <div class="field"><label>note</label><textarea id="supabase-client-note" rows="3" ${disabled}>${esc(editing ? (editing.note || "") : "")}</textarea></div>
+      <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
+        <button class="amber-btn" onclick="${editing ? "submitSupabaseClientEdit()" : "submitSupabaseNewClient()"}" ${disabled}>${creating ? "Створюємо..." : (saving ? "Зберігаємо..." : "Зберегти")}</button>
+      </div>
+    ` : `
+      <div class="empty-slot">Клієнта Supabase не знайдено.</div>
+      <div class="modal-actions"><button class="ghost-btn" onclick="closeModal()">Закрити</button></div>
     `}
     `;
   }
@@ -5361,6 +5449,158 @@ function renderModal() {
 
 function val(id) { return document.getElementById(id)?.value.trim() || ""; }
 
+async function submitSupabaseNewClient() {
+  const user = state.authUser;
+  if (!state.supabaseReadMode || !user) {
+    state.supabaseReadError = "Помилка створення клієнта Supabase: увійдіть у Supabase і відкрийте хмарний режим.";
+    render();
+    return;
+  }
+  if (state.supabaseClientCreating) return;
+
+  const name = val("supabase-client-name");
+  if (!name) return;
+  const phone = val("supabase-client-phone");
+  const email = val("supabase-client-email");
+  const address = val("supabase-client-address");
+  const note = val("supabase-client-note");
+
+  state.supabaseClientCreating = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("clients")
+      .insert({
+        owner_id: user.id,
+        name,
+        phone,
+        email,
+        address,
+        note
+      })
+      .select("id,name,phone,email,address,note")
+      .single();
+    if (error) throw error;
+
+    if (!state.supabaseReadData) state.supabaseReadData = { clients: [], objects: [] };
+    if (!Array.isArray(state.supabaseReadData.clients)) state.supabaseReadData.clients = [];
+    state.supabaseReadData.clients.push({
+      id: data.id,
+      name: data.name || name,
+      phone: data.phone || "",
+      email: data.email || "",
+      address: data.address || "",
+      note: data.note || ""
+    });
+    state.modal = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка створення клієнта Supabase: ${error.message || error}`;
+    console.error("Supabase client create failed", error);
+  } finally {
+    state.supabaseClientCreating = false;
+    render();
+  }
+}
+
+async function submitSupabaseClientEdit() {
+  const clientId = state.modal && state.modal.id;
+  const user = state.authUser;
+  const client = clientId ? findSupabaseReadClient(clientId) : null;
+  if (!state.supabaseReadMode || !user || !clientId || !client) {
+    state.supabaseReadError = "Помилка редагування клієнта Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть клієнта.";
+    render();
+    return;
+  }
+  if (state.supabaseClientSavingId === clientId) return;
+
+  const name = val("supabase-client-name");
+  if (!name) return;
+  const phone = val("supabase-client-phone");
+  const email = val("supabase-client-email");
+  const address = val("supabase-client-address");
+  const note = val("supabase-client-note");
+
+  state.supabaseClientSavingId = clientId;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("clients")
+      .update({ name, phone, email, address, note })
+      .eq("id", clientId)
+      .eq("owner_id", user.id)
+      .select("id,name,phone,email,address,note")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("клієнта не знайдено або він не належить поточному користувачу");
+
+    client.name = data.name || name;
+    client.phone = data.phone || "";
+    client.email = data.email || "";
+    client.address = data.address || "";
+    client.note = data.note || "";
+    const readData = state.supabaseReadData || { objects: [] };
+    (readData.objects || []).forEach(obj => {
+      if (obj.clientId === clientId) obj.client = client;
+    });
+    state.modal = null;
+  } catch (error) {
+    state.supabaseReadError = `Помилка редагування клієнта Supabase: ${error.message || error}`;
+    console.error("Supabase client edit failed", error);
+  } finally {
+    state.supabaseClientSavingId = null;
+    render();
+  }
+}
+
+async function deleteSupabaseClient(clientId) {
+  const user = state.authUser;
+  const client = clientId ? findSupabaseReadClient(clientId) : null;
+  if (!state.supabaseReadMode || !user || !clientId || !client) {
+    state.supabaseReadError = "Помилка видалення клієнта Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть клієнта.";
+    render();
+    return;
+  }
+  if (state.supabaseClientDeletingIds[clientId]) return;
+
+  const readData = state.supabaseReadData || { objects: [] };
+  const usedByObject = (readData.objects || []).some(obj => obj.clientId === clientId);
+  if (usedByObject) {
+    state.supabaseReadError = "Спочатку відвʼяжіть або змініть клієнта в обʼєктах.";
+    render();
+    return;
+  }
+
+  const confirmed = confirm("Видалити цього клієнта з Supabase?");
+  if (!confirmed) return;
+
+  state.supabaseClientDeletingIds[clientId] = true;
+  state.supabaseReadError = "";
+  render();
+
+  try {
+    const { error } = await supabaseClient
+      .from("clients")
+      .delete()
+      .eq("id", clientId)
+      .eq("owner_id", user.id);
+    if (error) throw error;
+
+    if (Array.isArray(readData.clients)) {
+      readData.clients = readData.clients.filter(item => item.id !== clientId);
+    }
+  } catch (error) {
+    state.supabaseReadError = `Помилка видалення клієнта Supabase: ${error.message || error}`;
+    console.error("Supabase client delete failed", error);
+  } finally {
+    delete state.supabaseClientDeletingIds[clientId];
+    render();
+  }
+}
+
 async function submitSupabaseNewObject() {
   const user = state.authUser;
   if (!state.supabaseReadMode || !user) {
@@ -5375,6 +5615,8 @@ async function submitSupabaseNewObject() {
   const address = val("supabase-object-address");
   const status = val("supabase-object-status") || "active";
   const notes = val("supabase-object-notes");
+  const clientId = val("supabase-object-client-id") || null;
+  const client = clientId ? findSupabaseReadClient(clientId) : null;
 
   state.supabaseObjectCreating = true;
   state.supabaseReadError = "";
@@ -5389,9 +5631,10 @@ async function submitSupabaseNewObject() {
         address,
         status,
         notes,
+        client_id: clientId,
         archived: false
       })
-      .select("id,name,address,status,notes")
+      .select("id,name,address,status,notes,client_id")
       .single();
     if (error) throw error;
 
@@ -5403,8 +5646,8 @@ async function submitSupabaseNewObject() {
       address: data.address || address || "—",
       status: data.status || status,
       notes: data.notes || notes || "",
-      clientId: null,
-      client: null,
+      clientId: data.client_id || clientId,
+      client,
       rooms: []
     });
     state.modal = null;
@@ -5433,6 +5676,8 @@ async function submitSupabaseObjectEdit() {
   const address = val("supabase-object-address");
   const status = val("supabase-object-status") || "active";
   const notes = val("supabase-object-notes");
+  const clientId = val("supabase-object-client-id") || null;
+  const client = clientId ? findSupabaseReadClient(clientId) : null;
 
   state.supabaseObjectSavingId = objectId;
   state.supabaseReadError = "";
@@ -5441,10 +5686,10 @@ async function submitSupabaseObjectEdit() {
   try {
     const { data, error } = await supabaseClient
       .from("objects")
-      .update({ name, address, status, notes })
+      .update({ name, address, status, notes, client_id: clientId })
       .eq("id", objectId)
       .eq("owner_id", user.id)
-      .select("id,name,address,status,notes")
+      .select("id,name,address,status,notes,client_id")
       .maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("обʼєкт не знайдено або він не належить поточному користувачу");
@@ -5453,6 +5698,8 @@ async function submitSupabaseObjectEdit() {
     object.address = data.address || address || "—";
     object.status = data.status || status;
     object.notes = data.notes || notes || "";
+    object.clientId = data.client_id || clientId;
+    object.client = object.clientId ? client : null;
     state.modal = null;
   } catch (error) {
     state.supabaseReadError = `Помилка редагування обʼєкта Supabase: ${error.message || error}`;
@@ -5864,7 +6111,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, importBasicLocalDataToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
