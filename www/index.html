@@ -689,6 +689,8 @@ let state = {
   supabasePriceLoading: false,
   supabasePriceError: "",
   supabasePriceItemCreating: false,
+  supabasePriceItemSavingId: null,
+  supabasePriceItemDeletingIds: {},
   supabaseWorkUpdatingIds: {},
   supabaseWorkDeletingIds: {},
   supabaseWorkSavingId: null,
@@ -1800,6 +1802,7 @@ function deletePriceItem(id) {
   }
   state.data.priceItems = (state.data.priceItems || []).filter(p => p.id !== id);
   if (state.openActionMenuId === id) state.openActionMenuId = null;
+  if (state.modal && state.modal.type === "deletePriceItem") state.modal = null;
   saveData(); render();
 }
 function createPriceCategory(name) {
@@ -2920,11 +2923,13 @@ function renderSupabasePrice() {
         `).join("") : `<div class="empty-slot">У Supabase ще немає позицій прайсу.</div>`}
       </div>
     `}
+    ${state.openActionMenuId ? `<div class="menu-overlay" onclick="closeActionMenu()"></div>` : ""}
   `;
 }
 
 function supabasePriceRowHtml(item) {
   const currency = item.currency || mainCurrency();
+  const deleting = !!(state.supabasePriceItemDeletingIds && state.supabasePriceItemDeletingIds[item.id]);
   return `<div class="work-row">
     <div style="flex:1">
       <div class="w-name">${esc(item.title)}</div>
@@ -2933,8 +2938,21 @@ function supabasePriceRowHtml(item) {
         <span class="mono">${item.price} ${esc(currency)}${item.unit ? `/${esc(item.unit)}` : ""}</span>
       </div>
       ${item.note ? `<div class="muted" style="margin-top:6px;">${esc(item.note)}</div>` : ""}
+      ${deleting ? `<div class="muted" style="margin-top:6px;">Видаляємо позицію...</div>` : ""}
     </div>
+    <button class="w-del" title="Опції" onclick="toggleActionMenu('supabase-price-${esc(item.id)}', event)" ${deleting ? "disabled" : ""}>⋮</button>
+    ${state.openActionMenuId === `supabase-price-${item.id}` ? supabasePriceActionMenuHtml(item) : ""}
   </div>`;
+}
+
+function supabasePriceActionMenuHtml(item) {
+  return `
+    <div class="obj-menu" onclick="event.stopPropagation()">
+      <button class="obj-menu-item" onclick="closeActionMenu(); openModal('supabasePriceItem','${esc(item.id)}')">Редагувати</button>
+      <div class="obj-menu-sep"></div>
+      <button class="obj-menu-item danger" onclick="closeActionMenu(); openModal('supabaseDeletePriceItem','${esc(item.id)}')">Видалити</button>
+    </div>
+  `;
 }
 
 function renderPrice() {
@@ -3039,7 +3057,7 @@ function priceActionMenuHtml(p) {
     <div class="obj-menu" onclick="event.stopPropagation()">
       <button class="obj-menu-item" onclick="closeActionMenu(); openModal('price','${p.id}')">Редагувати</button>
       <div class="obj-menu-sep"></div>
-      <button class="obj-menu-item danger" onclick="closeActionMenu(); deletePriceItem('${p.id}')">Видалити</button>
+      <button class="obj-menu-item danger" onclick="closeActionMenu(); openModal('deletePriceItem','${p.id}')">Видалити</button>
     </div>
   `;
 }
@@ -3681,6 +3699,8 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabasePriceLoading = false;
     state.supabasePriceError = "";
     state.supabasePriceItemCreating = false;
+    state.supabasePriceItemSavingId = null;
+    state.supabasePriceItemDeletingIds = {};
     state.supabaseWorkUpdatingIds = {};
     state.supabaseWorkDeletingIds = {};
     state.supabaseWorkSavingId = null;
@@ -3737,6 +3757,8 @@ async function enableSupabaseReadMode(shouldRender) {
     state.supabasePriceLoading = false;
     state.supabasePriceError = "";
     state.supabasePriceItemCreating = false;
+    state.supabasePriceItemSavingId = null;
+    state.supabasePriceItemDeletingIds = {};
     state.supabaseSelectedObjId = null;
     state.selectedObjId = null;
     state.openActionMenuId = null;
@@ -3773,6 +3795,8 @@ function disableSupabaseReadMode(shouldRender) {
   state.supabasePriceLoading = false;
   state.supabasePriceError = "";
   state.supabasePriceItemCreating = false;
+  state.supabasePriceItemSavingId = null;
+  state.supabasePriceItemDeletingIds = {};
   state.supabaseWorkUpdatingIds = {};
   state.supabaseWorkDeletingIds = {};
   state.supabaseWorkSavingId = null;
@@ -4876,23 +4900,39 @@ function renderModal() {
     const data = state.supabasePriceData || { categories: [], units: [], items: [] };
     const categories = data.categories || [];
     const units = data.units || [];
-    const creating = !!state.supabasePriceItemCreating;
-    const disabled = creating ? "disabled" : "";
-    const currency = state.data.settings.mainCurrency === "€" ? "EUR" : (state.data.settings.mainCurrency || "EUR");
+    const editing = state.modal.id ? (data.items || []).find(item => item.id === state.modal.id) : null;
+    const creating = !editing && !!state.supabasePriceItemCreating;
+    const saving = !!(editing && state.supabasePriceItemSavingId === editing.id);
+    const disabled = (creating || saving) ? "disabled" : "";
+    const currency = editing ? (editing.currency || "") : (state.data.settings.mainCurrency === "€" ? "EUR" : (state.data.settings.mainCurrency || "EUR"));
     body = `
-    <h3>Нова позиція прайсу Supabase</h3>
+    <h3>${editing ? "Редагувати позицію" : "Нова позиція прайсу Supabase"}</h3>
     ${state.supabasePriceError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabasePriceError)}</div>` : ""}
-    <div class="field"><label>Назва</label><input id="supabase-price-title" ${disabled}></div>
-    <div class="field"><label>Категорія</label><select id="supabase-price-category-id" ${disabled}><option value="">— без категорії —</option>${categories.map(category => `<option value="${esc(category.id)}">${esc(category.name)}</option>`).join("")}</select></div>
+    <div class="field"><label>Назва</label><input id="supabase-price-title" value="${esc(editing ? editing.title : "")}" ${disabled}></div>
+    <div class="field"><label>Категорія</label><select id="supabase-price-category-id" ${disabled}><option value="">— без категорії —</option>${categories.map(category => `<option value="${esc(category.id)}" ${(editing && editing.categoryId === category.id) ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></div>
     <div style="display:flex;gap:10px;">
-      <div class="field" style="flex:1"><label>Одиниця</label><select id="supabase-price-unit" ${disabled}><option value="">— без одиниці —</option>${units.map(unit => `<option value="${esc(unit.name)}">${esc(unit.name)}</option>`).join("")}</select></div>
-      <div class="field" style="flex:1"><label>Ціна</label><input id="supabase-price-price" type="number" inputmode="decimal" ${disabled}></div>
+      <div class="field" style="flex:1"><label>Одиниця</label><select id="supabase-price-unit" ${disabled}><option value="">— без одиниці —</option>${units.map(unit => `<option value="${esc(unit.name)}" ${(editing && editing.unit === unit.name) ? "selected" : ""}>${esc(unit.name)}</option>`).join("")}</select></div>
+      <div class="field" style="flex:1"><label>Ціна</label><input id="supabase-price-price" type="number" inputmode="decimal" value="${esc(editing ? editing.price : "")}" ${disabled}></div>
     </div>
     <div class="field"><label>Валюта</label><input id="supabase-price-currency" value="${esc(currency)}" ${disabled}></div>
-    <div class="field"><label>Примітка</label><textarea id="supabase-price-note" rows="3" ${disabled}></textarea></div>
+    <div class="field"><label>Примітка</label><textarea id="supabase-price-note" rows="3" ${disabled}>${esc(editing ? (editing.note || "") : "")}</textarea></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
-      <button class="amber-btn" onclick="submitSupabaseNewPriceItem()" ${disabled}>${creating ? "Створюємо..." : "Створити"}</button>
+      <button class="amber-btn" onclick="submitSupabasePriceItem('${editing ? esc(editing.id) : ""}')" ${disabled}>${editing ? (saving ? "Зберігаємо..." : "Зберегти зміни") : (creating ? "Створюємо..." : "Створити")}</button>
+    </div>`;
+  }
+  if (t === "supabaseDeletePriceItem") {
+    const data = state.supabasePriceData || { items: [] };
+    const item = (data.items || []).find(item => item.id === state.modal.id);
+    const deleting = !!(item && state.supabasePriceItemDeletingIds && state.supabasePriceItemDeletingIds[item.id]);
+    const disabled = deleting ? "disabled" : "";
+    body = `
+    <h3>Видалити позицію</h3>
+    ${state.supabasePriceError ? `<div class="auth-message error" style="margin-bottom:12px;">${esc(state.supabasePriceError)}</div>` : ""}
+    <p class="muted" style="margin-top:0;">Видалити позицію “${esc(item ? item.title : "позицію")}”?</p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()" ${disabled}>Скасувати</button>
+      <button class="amber-btn danger" onclick="deleteSupabasePriceItem('${item ? esc(item.id) : ""}')" ${disabled}>${deleting ? "Видаляємо..." : "Видалити"}</button>
     </div>`;
   }
   if (t === "price") {
@@ -4919,6 +4959,16 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
       <button class="amber-btn" onclick="submitPrice('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Додати"}</button>
+    </div>`;
+  }
+  if (t === "deletePriceItem") {
+    const item = (state.data.priceItems || []).find(p => p.id === state.modal.id);
+    body = `
+    <h3>Видалити позицію</h3>
+    <p class="muted" style="margin-top:0;">Видалити позицію “${esc(item ? item.name : "позицію")}”?</p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
+      <button class="amber-btn danger" onclick="deletePriceItem('${item ? esc(item.id) : ""}')">Видалити</button>
     </div>`;
   }
   if (t === "priceCategory") {
@@ -6240,14 +6290,14 @@ async function submitSupabaseRoomEdit() {
   }
 }
 
-async function submitSupabaseNewPriceItem() {
+async function submitSupabasePriceItem(id) {
   const user = state.authUser;
   if (!state.supabaseReadMode || !user) {
-    state.supabasePriceError = "Помилка створення позиції прайсу Supabase: увійдіть у Supabase і відкрийте хмарний режим.";
+    state.supabasePriceError = `Помилка ${id ? "редагування" : "створення"} позиції прайсу Supabase: увійдіть у Supabase і відкрийте хмарний режим.`;
     render();
     return;
   }
-  if (state.supabasePriceItemCreating) return;
+  if (id ? state.supabasePriceItemSavingId === id : state.supabasePriceItemCreating) return;
 
   const data = state.supabasePriceData || { categories: [], units: [], items: [] };
   const title = val("supabase-price-title");
@@ -6264,38 +6314,82 @@ async function submitSupabaseNewPriceItem() {
   const note = val("supabase-price-note");
   const sort_order = Array.isArray(data.items) ? data.items.length : 0;
 
-  state.supabasePriceItemCreating = true;
+  if (id) state.supabasePriceItemSavingId = id;
+  else state.supabasePriceItemCreating = true;
   state.supabasePriceError = "";
   render();
 
   try {
-    const { data: inserted, error } = await supabaseClient
+    const query = supabaseClient
       .from("price_items")
-      .insert({ owner_id: user.id, category_id, title, unit, price, currency, note, sort_order })
-      .select("id,category_id,title,unit,price,currency,note,sort_order")
-      .single();
+      [id ? "update" : "insert"](id ? { category_id, title, unit, price, currency, note } : { owner_id: user.id, category_id, title, unit, price, currency, note, sort_order })
+      .select("id,category_id,title,unit,price,currency,note,sort_order");
+    const { data: saved, error } = id ? await query.eq("id", id).eq("owner_id", user.id).single() : await query.single();
     if (error) throw error;
 
     const priceData = state.supabasePriceData || { categories: [], units: [], items: [] };
     if (!Array.isArray(priceData.items)) priceData.items = [];
-    priceData.items.push({
-      id: inserted.id,
-      categoryId: inserted.category_id || null,
-      title: inserted.title || title,
-      unit: inserted.unit || "",
-      price: Number(inserted.price || 0) || 0,
-      currency: inserted.currency || "",
-      note: inserted.note || "",
-      sortOrder: Number(inserted.sort_order || 0) || 0,
-    });
+    const normalized = {
+      id: saved.id,
+      categoryId: saved.category_id || null,
+      title: saved.title || title,
+      unit: saved.unit || "",
+      price: Number(saved.price || 0) || 0,
+      currency: saved.currency || "",
+      note: saved.note || "",
+      sortOrder: Number(saved.sort_order || 0) || 0,
+    };
+    const index = priceData.items.findIndex(item => item.id === normalized.id);
+    if (index === -1) priceData.items.push(normalized);
+    else priceData.items[index] = normalized;
     priceData.items.sort(sortSupabasePriceRows);
     state.supabasePriceData = priceData;
     state.modal = null;
   } catch (error) {
-    state.supabasePriceError = `Помилка створення позиції прайсу Supabase: ${error.message || error}`;
-    console.error("Supabase price item create failed", error);
+    state.supabasePriceError = `Помилка ${id ? "редагування" : "створення"} позиції прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price item save failed", error);
   } finally {
-    state.supabasePriceItemCreating = false;
+    if (id) state.supabasePriceItemSavingId = null;
+    else state.supabasePriceItemCreating = false;
+    render();
+  }
+}
+
+async function deleteSupabasePriceItem(id) {
+  const user = state.authUser;
+  if (!state.supabaseReadMode || !user || !id) {
+    state.supabasePriceError = "Помилка видалення позиції прайсу Supabase: увійдіть у Supabase, відкрийте хмарний режим і виберіть позицію.";
+    render();
+    return;
+  }
+  state.supabasePriceItemDeletingIds = state.supabasePriceItemDeletingIds || {};
+  if (state.supabasePriceItemDeletingIds[id]) return;
+
+  state.supabasePriceItemDeletingIds[id] = true;
+  state.supabasePriceError = "";
+  render();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("price_items")
+      .delete()
+      .eq("id", id)
+      .eq("owner_id", user.id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("позицію не знайдено або вона не належить поточному користувачу");
+
+    const priceData = state.supabasePriceData || { categories: [], units: [], items: [] };
+    priceData.items = (priceData.items || []).filter(item => item.id !== id);
+    state.supabasePriceData = priceData;
+    if (state.openActionMenuId === `supabase-price-${id}`) state.openActionMenuId = null;
+    state.modal = null;
+  } catch (error) {
+    state.supabasePriceError = `Помилка видалення позиції прайсу Supabase: ${error.message || error}`;
+    console.error("Supabase price item delete failed", error);
+  } finally {
+    if (state.supabasePriceItemDeletingIds) delete state.supabasePriceItemDeletingIds[id];
     render();
   }
 }
@@ -6565,7 +6659,7 @@ function submitAdvance() {
 
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, importLocalPriceToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
-  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, submitSupabaseNewPriceItem, deleteWork, submitObject, submitRoom, submitZone, submitWork,
+  toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, submitSupabaseNewPriceItem: submitSupabasePriceItem, submitSupabasePriceItem, deleteSupabasePriceItem, deleteWork, submitObject, submitRoom, submitZone, submitWork,
   deletePriceItem, submitPrice, deleteClient, submitClient, selectClient,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
