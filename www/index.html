@@ -4706,10 +4706,11 @@ function renderModal() {
     body = `
     <h3>Редагувати роботу Supabase</h3>
     ${editing ? `
-      <div class="field"><label>Назва</label><input id="supabase-work-title" value="${esc(editing.name)}" ${disabled}></div>
+      <div class="field"><label>Назва</label><input value="${esc(editing.name)}" disabled readonly></div>
+      <div class="helper-text" style="margin:-4px 0 12px;">Назва та одиниця виміру беруться з прайсу.</div>
       <div style="display:flex;gap:10px;">
         <div class="field" style="flex:1"><label>Кількість</label><input id="supabase-work-quantity" type="number" inputmode="decimal" value="${esc(editing.qty)}" ${disabled}></div>
-        <div class="field" style="flex:1"><label>Одиниця</label><input id="supabase-work-unit" value="${esc(editing.unit || "")}" ${disabled}></div>
+        <div class="field" style="flex:1"><label>Одиниця</label><input value="${esc(editing.unit || "")}" disabled readonly></div>
       </div>
       <div class="field"><label>Ціна</label><input id="supabase-work-price" type="number" inputmode="decimal" value="${esc(editing.price)}" ${disabled}></div>
       <div class="field"><label>Примітка</label><textarea id="supabase-work-notes" rows="3" ${disabled}>${esc(editing.note || "")}</textarea></div>
@@ -6747,9 +6748,7 @@ async function submitSupabaseWorkEdit() {
   }
   if (state.supabaseWorkSavingId === workId) return;
 
-  const title = val("supabase-work-title");
   const quantity = Number(val("supabase-work-quantity")) || 0;
-  const unit = val("supabase-work-unit");
   const price = Number(val("supabase-work-price")) || 0;
   const notes = val("supabase-work-notes");
 
@@ -6761,22 +6760,18 @@ async function submitSupabaseWorkEdit() {
     const { data, error } = await supabaseClient
       .from("works")
       .update({
-        title,
         quantity,
-        unit,
         price,
         notes
       })
       .eq("id", workId)
       .eq("owner_id", user.id)
-      .select("id,title,quantity,unit,price,notes")
+      .select("id,quantity,price,notes")
       .maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("роботу не знайдено або вона не належить поточному користувачу");
 
-    work.name = data.title;
     work.qty = data.quantity;
-    work.unit = data.unit;
     work.price = data.price;
     work.note = data.notes;
     state.modal = null;
