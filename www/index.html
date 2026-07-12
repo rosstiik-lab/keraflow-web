@@ -436,6 +436,7 @@ input, select { font-family: inherit; }
 .worker-modal .worker-photo-picker { flex-wrap: nowrap; gap: 6px; justify-content: center; margin-top: 4px; }
 .worker-modal .worker-photo-picker .ghost-btn { padding: 7px 8px; border-radius: 8px; font-size: 11.5px; white-space: nowrap; }
 .worker-photo-error { margin-top: 6px; color: var(--red); font-size: 11.5px; font-weight: 700; text-align: center; min-height: 16px; }
+.worker-photo-error.is-processing { color: var(--muted); }
 .worker-modal .modal-actions { margin-top: 6px; }
 @media (max-width: 360px) {
   .worker-modal .worker-photo-picker .ghost-btn { padding: 7px 6px; font-size: 11px; }
@@ -2196,18 +2197,36 @@ function updateWorker(id, name, phone, role, address, birthDate, startDate, dayR
   saveData(); closeModal();
 }
 function pickWorkerPhoto() {
+  const button = document.querySelector("[data-worker-photo-pick]");
+  if (button && button.disabled) return;
   const input = document.getElementById("m-worker-photo-file");
   if (input) input.click();
 }
 function workerPhotoActionsHtml(photo) {
   const hasPhoto = !!photo;
   return `
-        <button type="button" class="ghost-btn" onclick="pickWorkerPhoto()">${hasPhoto ? "Замінити фото" : "Додати фото"}</button>
+        <button type="button" class="ghost-btn" data-worker-photo-pick onclick="pickWorkerPhoto()">${hasPhoto ? "Замінити фото" : "Додати фото"}</button>
         ${hasPhoto ? `<button type="button" class="ghost-btn" onclick="removeWorkerPhoto()">Видалити фото</button>` : ""}`;
 }
 function setWorkerPhotoError(message) {
   const error = document.getElementById("m-worker-photo-error");
-  if (error) error.textContent = message || "";
+  if (error) {
+    error.textContent = message || "";
+    error.classList.remove("is-processing");
+  }
+}
+function setWorkerPhotoProcessing(isProcessing) {
+  const pickButton = document.querySelector("[data-worker-photo-pick]");
+  const error = document.getElementById("m-worker-photo-error");
+  if (pickButton) pickButton.disabled = !!isProcessing;
+  if (error) {
+    if (isProcessing) {
+      error.textContent = "Обробляємо фото…";
+    } else if (error.classList.contains("is-processing")) {
+      error.textContent = "";
+    }
+    error.classList.toggle("is-processing", !!isProcessing);
+  }
 }
 function setWorkerPhotoPreview(photo) {
   const nextPhoto = photo || "";
@@ -2273,6 +2292,7 @@ async function onWorkerPhotoSelected(input) {
     input.value = "";
     return;
   }
+  setWorkerPhotoProcessing(true);
   try {
     const compressedPhoto = await compressWorkerPhoto(file);
     if (!compressedPhoto.startsWith("data:image/jpeg")) {
@@ -2285,6 +2305,7 @@ async function onWorkerPhotoSelected(input) {
     console.error("Worker photo compression failed", err);
     setWorkerPhotoError("Не вдалося обробити фото");
   } finally {
+    setWorkerPhotoProcessing(false);
     input.value = "";
   }
 }
