@@ -2213,15 +2213,54 @@ function setWorkerPhotoPreview(photo) {
   if (preview) preview.innerHTML = workerAvatarHtml({ name: val("m-name") || "Працівник", photo: nextPhoto }, "preview");
   if (actions) actions.innerHTML = workerPhotoActionsHtml(nextPhoto);
 }
-function onWorkerPhotoSelected(input) {
+async function compressWorkerPhoto(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("No worker photo file selected"));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("Unable to read worker photo"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Unable to load worker photo"));
+      img.onload = () => {
+        const maxSize = 512;
+        const sourceWidth = img.naturalWidth || img.width;
+        const sourceHeight = img.naturalHeight || img.height;
+        const scale = Math.min(1, maxSize / Math.max(sourceWidth, sourceHeight));
+        const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+        const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+        const canvas = document.createElement("canvas");
+
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Unable to compress worker photo"));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+        resolve(canvas.toDataURL("image/jpeg", 0.8));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  });
+}
+async function onWorkerPhotoSelected(input) {
   const file = input && input.files && input.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    setWorkerPhotoPreview(String(reader.result || ""));
+  try {
+    const compressedPhoto = await compressWorkerPhoto(file);
+    setWorkerPhotoPreview(compressedPhoto);
+  } catch (err) {
+    console.error("Worker photo compression failed", err);
+  } finally {
     input.value = "";
-  };
-  reader.readAsDataURL(file);
+  }
 }
 function removeWorkerPhoto() { setWorkerPhotoPreview(""); }
 function deleteWorker(id) {
