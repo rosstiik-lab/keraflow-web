@@ -526,7 +526,10 @@ input, select { font-family: inherit; }
   background: #fff; color: #111; border: 1px solid #ddd; border-radius: 8px;
   box-shadow: 0 12px 34px rgba(0,0,0,.22); font-size: 12px; line-height: 1.45;
 }
-.proposal-doc-title { font-size: 23px; font-weight: 800; color: #111; margin-bottom: 16px; text-align: center; }
+.proposal-doc-head { display: grid; grid-template-columns: 1fr 0.86fr; gap: 18px; align-items: start; margin-bottom: 18px; }
+.proposal-doc-party { border-left: 4px solid #111; padding-left: 12px; }
+.proposal-doc-title { font-size: 23px; font-weight: 800; color: #111; margin-bottom: 10px; text-align: right; }
+.proposal-doc-titlebox { border: 1px solid #111; border-radius: 8px; padding: 12px; background: #fafafa; }
 .proposal-doc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
 .proposal-doc-card { border: 1px solid #d8d8d8; border-radius: 8px; padding: 10px 12px; background: #fff; }
 .proposal-doc-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #666; margin-bottom: 5px; }
@@ -543,9 +546,15 @@ input, select { font-family: inherit; }
 .proposal-doc-table th:nth-child(5), .proposal-doc-table td:nth-child(5) { width: 17%; }
 .proposal-doc-table th:nth-child(6), .proposal-doc-table td:nth-child(6) { width: 19%; }
 .proposal-doc-table .num { text-align: right; }
+.proposal-doc-zero-row td { color: #888; }
 .proposal-doc-note { color: #444; font-size: 11px; margin-top: 4px; }
 .proposal-doc-summary { margin-top: 16px; padding-top: 12px; border-top: 2px solid #111; display: flex; justify-content: flex-end; }
 .proposal-doc-total { font-size: 17px; font-weight: 800; color: #111; }
+.proposal-doc-bottom { break-inside: avoid; page-break-inside: avoid; margin-top: 16px; }
+.proposal-doc-notes { break-inside: avoid; page-break-inside: avoid; margin-top: 16px; border: 1px solid #d8d8d8; border-radius: 8px; padding: 10px 12px; background: #fff; white-space: pre-line; }
+.proposal-doc-signatures { break-inside: avoid; page-break-inside: avoid; display: grid; grid-template-columns: 1fr 1fr; gap: 34px; margin-top: 28px; }
+.proposal-doc-sign-label { color: #555; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 28px; }
+.proposal-doc-sign-line { border-top: 1px solid #111; padding-top: 6px; min-height: 20px; color: #111; }
 
 @media print {
   @page { size: A4; margin: 12mm; }
@@ -559,12 +568,13 @@ input, select { font-family: inherit; }
   .proposal-doc { width: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; color: #000 !important; }
   .proposal-doc * { color: #000 !important; background-color: transparent !important; box-shadow: none !important; }
   .proposal-doc-table th { background: #eee !important; }
-  .proposal-doc-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+  .proposal-doc-table tr, .proposal-doc-bottom, .proposal-doc-notes, .proposal-doc-signatures { break-inside: avoid !important; page-break-inside: avoid !important; }
 }
 @media (max-width: 720px) {
   .proposal-modal { height: calc(100vh - 16px); max-height: calc(100vh - 16px); padding: 12px; }
   .proposal-doc { padding: 18px; min-height: 0; }
-  .proposal-doc-grid, .proposal-doc-meta { grid-template-columns: 1fr; }
+  .proposal-doc-head, .proposal-doc-grid, .proposal-doc-meta, .proposal-doc-signatures { grid-template-columns: 1fr; }
+  .proposal-doc-title { text-align: left; }
 }
 
 /* ---------- Auth ---------- */
@@ -641,6 +651,10 @@ const OBJ_STATUS = {
 };
 
 const QUICK_ACTIONS = ["Робота","Матеріал","Оплата","Акти","Нотатки"];
+
+const DEFAULT_PROPOSAL_NOTES = `Матеріали оплачуються окремо.
+Зміни обсягів і додаткові роботи погоджуються окремо.
+Пропозиція дійсна протягом зазначеного строку.`;
 
 const seedData = {
   priceCategories: ["Плитка", "Гідроізоляція", "Опорядження", "Підготовчі роботи", "Демонтаж"],
@@ -860,7 +874,14 @@ function migrateData(data) {
   data.workers.forEach(w => { if (w.currency === undefined) w.currency = "€"; });
   data.workerEntries = data.workerEntries || [];
   data.workerPayments = data.workerPayments || [];
-  data.companyProfile = data.companyProfile || { name: "", phone: "", email: "" };
+  data.companyProfile = data.companyProfile || { name: "", phone: "", email: "", address: "", website: "", proposalValidityDays: 30, proposalNotes: "" };
+  if (data.companyProfile.name === undefined) data.companyProfile.name = "";
+  if (data.companyProfile.phone === undefined) data.companyProfile.phone = "";
+  if (data.companyProfile.email === undefined) data.companyProfile.email = "";
+  if (data.companyProfile.address === undefined) data.companyProfile.address = "";
+  if (data.companyProfile.website === undefined) data.companyProfile.website = "";
+  if (data.companyProfile.proposalValidityDays === undefined) data.companyProfile.proposalValidityDays = 30;
+  if (data.companyProfile.proposalNotes === undefined) data.companyProfile.proposalNotes = "";
   if (data.lastExportAt === undefined) data.lastExportAt = null;
   data.settings = data.settings || {};
   if (data.settings.mainCurrency === undefined) data.settings.mainCurrency = "€";
@@ -1121,7 +1142,7 @@ function renderAuthWarnings() {
 /* ---------- Company profile ---------- */
 let companyProfileSaveTimer = null;
 function updateCompanyProfileField(field, value) {
-  state.data.companyProfile = state.data.companyProfile || { name: "", phone: "", email: "" };
+  state.data.companyProfile = state.data.companyProfile || { name: "", phone: "", email: "", address: "", website: "", proposalValidityDays: 30, proposalNotes: "" };
   state.data.companyProfile[field] = value;
   clearTimeout(companyProfileSaveTimer);
   companyProfileSaveTimer = setTimeout(() => { saveData(); }, 500);
@@ -4437,12 +4458,49 @@ function supabaseReadRoomHtml(room) {
 
 function proposalStatusLabel(status) { return status === "draft" ? "Чернетка" : (status || "—"); }
 function proposalTotal(proposal) { return (proposal && proposal.items || []).reduce((s, it) => s + (Number(it.quantity)||0) * (Number(it.price)||0), 0); }
-function renderProposalContactLines(contact) {
+function proposalDateOnly(value) {
+  const d = value ? new Date(value) : new Date();
+  if (Number.isNaN(d.getTime())) return new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function proposalValidityDays(company) {
+  const value = Number(company && company.proposalValidityDays);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 30;
+}
+function proposalValidUntilDate(proposal, company) {
+  const d = proposalDateOnly(proposal && proposal.createdAt);
+  d.setDate(d.getDate() + proposalValidityDays(company));
+  return d;
+}
+function fmtProposalDate(value) {
+  if (!value) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("uk-UA");
+}
+function proposalDocumentNumber(proposal, obj) {
+  const created = proposalDateOnly(proposal && proposal.createdAt);
+  const yyyy = created.getFullYear();
+  const mm = String(created.getMonth() + 1).padStart(2, "0");
+  const dd = String(created.getDate()).padStart(2, "0");
+  const sourceId = (proposal && proposal.id) || (obj && obj.id) || "";
+  const suffix = String(sourceId).replace(/-/g, "").slice(0, 4).toUpperCase().padEnd(4, "0");
+  return `КП-${yyyy}-${mm}${dd}-${suffix}`;
+}
+function renderProposalContactLines(contact, options = {}) {
   const lines = [];
   if (contact && contact.name) lines.push(esc(contact.name));
   if (contact && contact.phone) lines.push(`Телефон: ${esc(contact.phone)}`);
   if (contact && contact.email) lines.push(`Email: ${esc(contact.email)}`);
+  if (contact && contact.address) lines.push(`Адреса: ${esc(contact.address)}`);
+  if (contact && contact.website) lines.push(`Сайт: ${esc(contact.website)}`);
+  if (options.ownerName) lines.push(`Власник: ${esc(options.ownerName)}`);
   return lines.length ? lines.map(line => `<div class="proposal-doc-line">${line}</div>`).join("") : `<div class="proposal-doc-line">—</div>`;
+}
+function renderProposalNotes(company) {
+  const notes = company && typeof company.proposalNotes === "string" && company.proposalNotes.trim()
+    ? company.proposalNotes.trim()
+    : DEFAULT_PROPOSAL_NOTES;
+  return esc(notes);
 }
 function openSupabaseProposalPreview(objectId) {
   state.modal = { type: "supabaseProposalPreview", id: objectId };
@@ -4456,22 +4514,42 @@ function renderSupabaseProposalDocument(obj) {
   const items = proposal && Array.isArray(proposal.items) ? proposal.items : [];
   const currency = (items[0] && items[0].currency) || mainCurrency();
   const total = proposalTotal(proposal);
+  const ownerName = [state.data.settings && state.data.settings.ownerFirstName, state.data.settings && state.data.settings.ownerLastName].filter(Boolean).join(" ");
+  const createdDate = proposalDateOnly(proposal && proposal.createdAt);
+  const validUntil = proposalValidUntilDate(proposal, company);
+  const docNumber = proposalDocumentNumber(proposal, obj);
   return `<div class="proposal-doc">
-    <div class="proposal-doc-title">Комерційна пропозиція</div>
-    <div class="proposal-doc-grid">
-      <div class="proposal-doc-card"><div class="proposal-doc-label">Виконавець</div>${renderProposalContactLines(company)}</div>
-      <div class="proposal-doc-card"><div class="proposal-doc-label">Замовник</div>${renderProposalContactLines(client)}</div>
+    <div class="proposal-doc-head">
+      <div class="proposal-doc-party">
+        <div class="proposal-doc-label">Виконавець</div>
+        ${renderProposalContactLines(company, { ownerName })}
+      </div>
+      <div class="proposal-doc-titlebox">
+        <div class="proposal-doc-title">Комерційна пропозиція</div>
+        <div class="proposal-doc-line"><strong>№:</strong> ${esc(docNumber)}</div>
+        <div class="proposal-doc-line"><strong>Дата створення:</strong> ${esc(fmtProposalDate(createdDate))}</div>
+        <div class="proposal-doc-line"><strong>Дійсна до:</strong> ${esc(fmtProposalDate(validUntil))}</div>
+      </div>
     </div>
-    <div class="proposal-doc-meta">
+    <div class="proposal-doc-grid">
+      <div class="proposal-doc-card"><div class="proposal-doc-label">Замовник</div>${renderProposalContactLines(client)}</div>
       <div class="proposal-doc-card"><div class="proposal-doc-label">Об’єкт</div><div class="proposal-doc-line">${esc(obj ? obj.name : "—")}</div><div class="proposal-doc-line">${esc(obj && obj.address ? obj.address : "—")}</div></div>
-      <div class="proposal-doc-card"><div class="proposal-doc-label">Дата створення пропозиції</div><div class="proposal-doc-line">${proposal && proposal.createdAt ? esc(fmtDateTime(proposal.createdAt)) : "—"}</div></div>
     </div>
     ${items.length ? `<div class="proposal-doc-table-wrap"><table class="proposal-doc-table"><thead><tr><th>№</th><th>Назва роботи</th><th>Одиниця</th><th class="num">Кількість</th><th class="num">Ціна</th><th class="num">Сума</th></tr></thead><tbody>${items.map((it, idx) => {
       const rowCurrency = it.currency || currency;
+      const quantity = Number(it.quantity) || 0;
       const sum = (Number(it.quantity)||0) * (Number(it.price)||0);
-      return `<tr><td>${idx + 1}</td><td>${esc(it.title || "Без назви")}${it.note ? `<div class="proposal-doc-note">Примітка: ${esc(it.note)}</div>` : ""}</td><td>${esc(it.unit || "—")}</td><td class="num">${esc(it.quantity)}</td><td class="num">${fmtMoney(it.price, rowCurrency)}</td><td class="num">${fmtMoney(sum, rowCurrency)}</td></tr>`;
+      return `<tr class="${quantity === 0 ? "proposal-doc-zero-row" : ""}"><td>${idx + 1}</td><td>${esc(it.title || "Без назви")}${it.note ? `<div class="proposal-doc-note">Примітка: ${esc(it.note)}</div>` : ""}</td><td>${esc(it.unit || "—")}</td><td class="num">${esc(it.quantity)}</td><td class="num">${fmtMoney(it.price, rowCurrency)}</td><td class="num">${fmtMoney(sum, rowCurrency)}</td></tr>`;
     }).join("")}</tbody></table></div>` : `<div class="empty-slot">У пропозиції немає позицій.</div>`}
-    <div class="proposal-doc-summary"><div class="proposal-doc-total">Загальна сума: ${fmtMoney(total, currency)}</div></div>
+    <div class="proposal-doc-bottom">
+      <div class="proposal-doc-summary"><div class="proposal-doc-total">Всього робіт: ${fmtMoney(total, currency)}</div></div>
+      <div class="proposal-doc-summary"><div class="proposal-doc-total">До оплати: ${fmtMoney(total, currency)}</div></div>
+      <div class="proposal-doc-notes"><div class="proposal-doc-label">Умови та примітки</div>${renderProposalNotes(company)}</div>
+      <div class="proposal-doc-signatures">
+        <div><div class="proposal-doc-sign-label">Виконавець</div><div class="proposal-doc-sign-line">${esc(company.name || ownerName || "")}</div></div>
+        <div><div class="proposal-doc-sign-label">Замовник</div><div class="proposal-doc-sign-line">${esc(client && client.name ? client.name : "")}</div></div>
+      </div>
+    </div>
   </div>`;
 }
 function renderSupabaseProposalSection(obj) {
@@ -5044,13 +5122,17 @@ function renderSettings() {
       </div>
     </div>
     <div class="panel" style="margin-bottom:18px;">
-      <div class="group-label" style="margin-top:0;">Профіль компанії</div>
+      <div class="group-label" style="margin-top:0;">Мої дані</div>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
         Ці дані підставляються в шапку друкованих актів і комерційних пропозицій.
       </p>
       <div class="field"><label>Ім'я / назва компанії</label><input id="cp-name" value="${esc(cp.name||"")}" oninput="updateCompanyProfileField('name', this.value)"></div>
       <div class="field"><label>Телефон</label><input id="cp-phone" value="${esc(cp.phone||"")}" oninput="updateCompanyProfileField('phone', this.value)"></div>
-      <div class="field"><label>Email (необов'язково)</label><input id="cp-email" type="email" value="${esc(cp.email||"")}" oninput="updateCompanyProfileField('email', this.value)"></div>
+      <div class="field"><label>Email</label><input id="cp-email" type="email" value="${esc(cp.email||"")}" oninput="updateCompanyProfileField('email', this.value)"></div>
+      <div class="field"><label>Адреса</label><input id="cp-address" value="${esc(cp.address||"")}" oninput="updateCompanyProfileField('address', this.value)"></div>
+      <div class="field"><label>Сайт</label><input id="cp-website" value="${esc(cp.website||"")}" oninput="updateCompanyProfileField('website', this.value)"></div>
+      <div class="field"><label>Строк дії пропозиції, днів</label><input id="cp-proposal-validity" type="number" min="1" step="1" value="${esc(cp.proposalValidityDays ?? 30)}" oninput="updateCompanyProfileField('proposalValidityDays', this.value)"></div>
+      <div class="field"><label>Стандартні примітки до пропозиції</label><textarea id="cp-proposal-notes" rows="4" oninput="updateCompanyProfileField('proposalNotes', this.value)">${esc(cp.proposalNotes||"")}</textarea></div>
       <div style="display:flex;gap:10px;">
         <div class="field" style="flex:1"><label>Ім'я власника</label><input id="cp-owner-first" value="${esc(state.data.settings.ownerFirstName||"")}" oninput="updateOwnerNameField('ownerFirstName', this.value)"></div>
         <div class="field" style="flex:1"><label>Прізвище власника</label><input id="cp-owner-last" value="${esc(state.data.settings.ownerLastName||"")}" oninput="updateOwnerNameField('ownerLastName', this.value)"></div>
