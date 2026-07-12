@@ -926,7 +926,13 @@ function migrateData(data) {
     if (e.updatedAt === undefined) e.updatedAt = e.createdAt || Date.now();
   });
   data.workers = data.workers || [];
-  data.workers.forEach(w => { if (w.currency === undefined) w.currency = "€"; });
+  data.workers.forEach(w => {
+    if (w.currency === undefined) w.currency = "€";
+    if (w.status === undefined) w.status = "active";
+    if (w.phone === undefined) w.phone = "";
+    if (w.role === undefined) w.role = "";
+    if (w.note === undefined) w.note = "";
+  });
   data.workerEntries = data.workerEntries || [];
   data.workerPayments = data.workerPayments || [];
   data.companyProfile = data.companyProfile || { name: "", phone: "", email: "", address: "", website: "", proposalValidityDays: 30, proposalNotes: "" };
@@ -5832,7 +5838,7 @@ function renderModal() {
     <h3>${editing ? "Редагувати працівника" : "Новий працівник"}</h3>
     <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я працівника" value="${editing ? esc(editing.name) : ""}"></div>
     <div class="field"><label>Телефон</label><input id="m-phone" placeholder="+385 ..." value="${editing ? esc(editing.phone||"") : ""}"></div>
-    <div class="field"><label>Роль</label><input id="m-role" placeholder="Напр. Плиточник" value="${editing ? esc(editing.role||"") : ""}"></div>
+    <div class="field"><label>Спеціальність</label><input id="m-role" placeholder="Напр. Плиточник" value="${editing ? esc(editing.role||"") : ""}"></div>
     <div style="display:flex;gap:10px;">
       <div class="field" style="flex:1"><label>Денна ставка / день</label><input id="m-dayrate" type="number" inputmode="decimal" value="${editing ? editing.dayRate : ""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing ? editing.currency : state.data.settings.workersCurrency)}</select></div>
