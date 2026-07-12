@@ -819,6 +819,7 @@ let state = {
   selectedWorkerId: null,
   workerSearch: "",
   workerView: "list",
+  workerPhotoProcessing: false,
   timesheetYear: new Date().getFullYear(),
   timesheetMonth: new Date().getMonth(),
   activeTimesheetWorkerId: null,
@@ -2204,8 +2205,9 @@ function pickWorkerPhoto() {
 }
 function workerPhotoActionsHtml(photo) {
   const hasPhoto = !!photo;
+  const disabledAttr = state.workerPhotoProcessing ? " disabled" : "";
   return `
-        <button type="button" class="ghost-btn" data-worker-photo-pick onclick="pickWorkerPhoto()">${hasPhoto ? "Замінити фото" : "Додати фото"}</button>
+        <button type="button" class="ghost-btn" data-worker-photo-pick onclick="pickWorkerPhoto()"${disabledAttr}>${hasPhoto ? "Замінити фото" : "Додати фото"}</button>
         ${hasPhoto ? `<button type="button" class="ghost-btn" onclick="removeWorkerPhoto()">Видалити фото</button>` : ""}`;
 }
 function setWorkerPhotoError(message) {
@@ -2216,9 +2218,12 @@ function setWorkerPhotoError(message) {
   }
 }
 function setWorkerPhotoProcessing(isProcessing) {
+  state.workerPhotoProcessing = !!isProcessing;
   const pickButton = document.querySelector("[data-worker-photo-pick]");
+  const saveButton = document.querySelector("[data-worker-save]");
   const error = document.getElementById("m-worker-photo-error");
   if (pickButton) pickButton.disabled = !!isProcessing;
+  if (saveButton) saveButton.disabled = !!isProcessing;
   if (error) {
     if (isProcessing) {
       error.textContent = "Обробляємо фото…";
@@ -2279,6 +2284,7 @@ async function compressWorkerPhoto(file) {
   });
 }
 async function onWorkerPhotoSelected(input) {
+  if (state.workerPhotoProcessing) return;
   const file = input && input.files && input.files[0];
   if (!file) return;
   const maxInitialPhotoSize = 10 * 1024 * 1024;
@@ -6020,7 +6026,7 @@ function renderModal() {
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Додаткова інформація" value="${editing ? esc(editing.note||"") : ""}"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
-      <button class="amber-btn" onclick="submitWorker('${editing ? editing.id : ""}')">${editing ? "Зберегти" : "Створити"}</button>
+      <button class="amber-btn" data-worker-save onclick="submitWorker('${editing ? editing.id : ""}')"${state.workerPhotoProcessing ? " disabled" : ""}>${editing ? "Зберегти" : "Створити"}</button>
     </div>`;
   }
   if (t === "workerEntry") {
