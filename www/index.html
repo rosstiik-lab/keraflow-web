@@ -526,20 +526,21 @@ input, select { font-family: inherit; }
   background: #fff; color: #111; border: 1px solid #ddd; border-radius: 8px;
   box-shadow: 0 12px 34px rgba(0,0,0,.22); font-size: 10.5px; line-height: 1.3;
 }
-.proposal-doc-head { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 10px; align-items: start; margin-bottom: 10px; }
-.proposal-doc-party { border-left: 3px solid #111; padding-left: 8px; font-size: 10px; }
-.proposal-doc-title { font-size: 17px; line-height: 1.1; font-weight: 800; color: #111; margin-bottom: 5px; text-align: right; }
-.proposal-doc-titlebox { border: 1px solid #111; border-radius: 4px; padding: 7px 9px; background: #fafafa; }
-.proposal-doc-titlebox .proposal-doc-line { font-size: 9.5px; line-height: 1.3; margin-top: 1px; }
-.proposal-doc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 9px; }
-.proposal-doc-card { border: 1px solid #d8d8d8; border-radius: 4px; padding: 6px 8px; background: #fff; }
-.proposal-doc-label { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #666; margin-bottom: 3px; }
-.proposal-doc-line { color: #111; margin-top: 1px; font-size: 10px; line-height: 1.3; overflow-wrap: anywhere; }
+.proposal-doc-head { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 20px; align-items: start; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #222; }
+.proposal-doc-party { border: 0; padding: 0; font-size: 9px; }
+.proposal-doc-party-name { display: block; font-size: 13px; line-height: 1.15; font-weight: 700; margin-bottom: 3px; }
+.proposal-doc-title { font-size: 16px; line-height: 1.15; font-weight: 800; color: #111; margin-bottom: 4px; text-align: right; }
+.proposal-doc-titlebox { border: 0; border-radius: 0; padding: 0; background: transparent; text-align: right; }
+.proposal-doc-titlebox .proposal-doc-line { font-size: 9px; line-height: 1.25; margin-top: 1px; }
+.proposal-doc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 10px; }
+.proposal-doc-card { border: 0; border-radius: 0; padding: 0; background: transparent; }
+.proposal-doc-label { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #555; margin-bottom: 2px; }
+.proposal-doc-line { color: #111; margin-top: 1px; font-size: 9.2px; line-height: 1.25; overflow-wrap: anywhere; }
 .proposal-doc-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
 .proposal-doc-table-wrap { overflow-x: auto; margin-top: 5px; }
 .proposal-doc-table { width: 100%; table-layout: fixed; border-collapse: collapse; background: #fff; font-size: 9.5px; }
-.proposal-doc-table th, .proposal-doc-table td { border: 1px solid #999; padding: 4px 5px; color: #111; vertical-align: top; overflow-wrap: anywhere; white-space: normal; line-height: 1.2; }
-.proposal-doc-table th { background: #efefef; font-size: 8px; line-height: 1.1; padding: 4px; font-weight: 800; text-transform: uppercase; letter-spacing: 0; }
+.proposal-doc-table th, .proposal-doc-table td { border: 1px solid #b7b7b7; padding: 3px 5px; color: #111; vertical-align: top; overflow-wrap: anywhere; white-space: normal; line-height: 1.15; }
+.proposal-doc-table th { background: #f1f1f1; font-size: 7.8px; line-height: 1.1; padding: 3px 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0; }
 .proposal-doc-table th:nth-child(1), .proposal-doc-table td:nth-child(1) { width: 5%; }
 .proposal-doc-table th:nth-child(2), .proposal-doc-table td:nth-child(2) { width: 34%; }
 .proposal-doc-table th:nth-child(3), .proposal-doc-table td:nth-child(3) { width: 12%; }
@@ -551,16 +552,16 @@ input, select { font-family: inherit; }
 .proposal-doc-table .num { text-align: right; white-space: nowrap; font-size: 9px; }
 .proposal-doc-zero-row td { color: #888; }
 .proposal-doc-note { color: #444; font-size: 8.5px; margin-top: 2px; }
-.proposal-doc-summary { margin-top: 8px; padding-top: 6px; border-top: 1.5px solid #111; display: grid; gap: 2px; justify-content: end; text-align: right; }
-.proposal-doc-total { font-size: 12px; line-height: 1.25; color: #111; }
-.proposal-doc-total-pay { font-weight: 700; font-size: 13px; }
+.proposal-doc-summary { width: 230px; margin: 8px 0 0 auto; padding-top: 5px; border-top: 1px solid #222; display: grid; gap: 2px; text-align: right; }
+.proposal-doc-total { font-size: 10.5px; line-height: 1.25; color: #111; }
+.proposal-doc-total-pay { font-weight: 700; font-size: 11.5px; }
 .proposal-doc-bottom { break-inside: avoid; page-break-inside: avoid; margin-top: 8px; }
-.proposal-doc-notes { break-inside: avoid; page-break-inside: avoid; margin-top: 9px; border: 1px solid #d8d8d8; border-radius: 4px; padding: 6px 8px; background: #fff; font-size: 9px; line-height: 1.3; }
+.proposal-doc-notes { break-inside: avoid; page-break-inside: avoid; margin-top: 10px; border: 0; border-radius: 0; padding: 0; background: transparent; font-size: 8.8px; line-height: 1.3; }
 .proposal-doc-notes .proposal-doc-label { font-size: 8px; margin-bottom: 3px; }
 .proposal-doc-note-line { margin-top: 1px; }
-.proposal-doc-signatures { break-inside: avoid; page-break-inside: avoid; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 14px; }
-.proposal-doc-sign-label { color: #555; font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 16px; }
-.proposal-doc-sign-line { border-top: 1px solid #111; padding-top: 4px; min-height: 14px; font-size: 9px; color: #111; }
+.proposal-doc-signatures { break-inside: avoid; page-break-inside: avoid; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 16px; }
+.proposal-doc-sign-label { color: #555; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 14px; }
+.proposal-doc-sign-line { border-top: 1px solid #222; padding-top: 3px; min-height: 12px; font-size: 8.8px; color: #111; }
 
 @media print {
   @page { size: A4; margin: 12mm; }
@@ -4542,7 +4543,7 @@ function proposalDocumentNumber(proposal, obj) {
 }
 function renderProposalContactLines(contact, options = {}) {
   const lines = [];
-  if (contact && contact.name) lines.push(esc(contact.name));
+  if (contact && contact.name) lines.push(options.primaryName ? `<span class="proposal-doc-party-name">${esc(contact.name)}</span>` : esc(contact.name));
   if (contact && contact.phone) lines.push(`Телефон: ${esc(contact.phone)}`);
   if (contact && contact.email) lines.push(`Email: ${esc(contact.email)}`);
   if (contact && contact.address) lines.push(`Адреса: ${esc(contact.address)}`);
@@ -4577,7 +4578,7 @@ function renderSupabaseProposalDocument(obj) {
     <div class="proposal-doc-head">
       <div class="proposal-doc-party">
         <div class="proposal-doc-label">Виконавець</div>
-        ${renderProposalContactLines(company, { ownerName })}
+        ${renderProposalContactLines(company, { ownerName, primaryName: true })}
       </div>
       <div class="proposal-doc-titlebox">
         <div class="proposal-doc-title">Комерційна пропозиція</div>
