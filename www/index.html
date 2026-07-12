@@ -189,6 +189,18 @@ input, select { font-family: inherit; }
   width: 38px; height: 38px; border-radius: 10px; background: var(--icon-bg); display: flex;
   align-items: center; justify-content: center; color: var(--amber); flex-shrink: 0; font-size: 16px;
 }
+.worker-avatar {
+  width: 38px; height: 38px; border-radius: 50%; background: var(--icon-bg); color: var(--amber);
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  font-weight: 800; font-size: 15px; overflow: hidden; border: 1px solid var(--line);
+}
+.worker-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.worker-avatar.large { width: 72px; height: 72px; font-size: 28px; }
+.worker-avatar.preview { width: 86px; height: 86px; font-size: 30px; margin: 0 auto 10px; }
+.worker-photo-picker { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.worker-photo-picker .ghost-btn { flex: 0 0 auto; }
+.ts-worker-name { display: inline-flex; align-items: center; gap: 8px; }
+.ts-worker-name .worker-avatar { width: 26px; height: 26px; font-size: 11px; }
 .obj-row-name { font-weight: 700; font-size: 14px; }
 .obj-row.has-menu .obj-row-name { padding-right: 64px; }
 .obj-row-addr { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
@@ -934,6 +946,7 @@ function migrateData(data) {
     if (w.birthDate === undefined) w.birthDate = "";
     if (w.startDate === undefined) w.startDate = "";
     if (w.note === undefined) w.note = "";
+    if (w.photo === undefined) w.photo = "";
   });
   data.workerEntries = data.workerEntries || [];
   data.workerPayments = data.workerPayments || [];
@@ -2139,24 +2152,50 @@ function getOwnerWorker() {
   const name = (first || last) ? `${first} ${last}`.trim() : "Працівник номер один";
   return { id: "owner", name, isOwner: true };
 }
+function workerInitial(name) {
+  const first = (name || "?").trim().charAt(0) || "?";
+  return first.toLocaleUpperCase("uk-UA");
+}
+function workerAvatarHtml(w, sizeClass = "") {
+  const cls = `worker-avatar ${sizeClass}`.trim();
+  return `<span class="${cls}">${w && w.photo ? `<img src="${esc(w.photo)}" alt="${esc(w.name||"Працівник")}">` : esc(workerInitial(w && w.name))}</span>`;
+}
 function getWorker(id) {
   if (id === "owner") return getOwnerWorker();
   return (state.data.workers||[]).find(w => w.id === id) || null;
 }
 function selectWorker(id) { state.selectedWorkerId = id; render(); }
 function setWorkerSearch(q) { state.workerSearch = q; render(); }
-function createWorker(name, phone, role, address, birthDate, startDate, dayRate, note, currency) {
+function createWorker(name, phone, role, address, birthDate, startDate, dayRate, note, currency, photo) {
   state.data.workers = state.data.workers || [];
-  const w = { id: uid("worker"), name, phone, role, address, birthDate, startDate, dayRate: Number(dayRate)||0, note, currency: currency||"€", createdAt: Date.now() };
+  const w = { id: uid("worker"), name, phone, role, address, birthDate, startDate, dayRate: Number(dayRate)||0, note, currency: currency||"€", photo: photo||"", createdAt: Date.now() };
   state.data.workers.push(w);
   state.selectedWorkerId = w.id;
   saveData(); closeModal();
 }
-function updateWorker(id, name, phone, role, address, birthDate, startDate, dayRate, note, currency) {
+function updateWorker(id, name, phone, role, address, birthDate, startDate, dayRate, note, currency, photo) {
   const w = getWorker(id); if (!w) return;
-  w.name = name; w.phone = phone; w.role = role; w.address = address; w.birthDate = birthDate; w.startDate = startDate; w.dayRate = Number(dayRate)||0; w.note = note; w.currency = currency||"€";
+  w.name = name; w.phone = phone; w.role = role; w.address = address; w.birthDate = birthDate; w.startDate = startDate; w.dayRate = Number(dayRate)||0; w.note = note; w.currency = currency||"€"; w.photo = photo||"";
   saveData(); closeModal();
 }
+function pickWorkerPhoto() {
+  const input = document.getElementById("m-worker-photo-file");
+  if (input) input.click();
+}
+function setWorkerPhotoPreview(photo) {
+  const hidden = document.getElementById("m-worker-photo");
+  const preview = document.getElementById("m-worker-photo-preview");
+  if (hidden) hidden.value = photo || "";
+  if (preview) preview.innerHTML = workerAvatarHtml({ name: val("m-name") || "Працівник", photo: photo || "" }, "preview");
+}
+function onWorkerPhotoSelected(input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => setWorkerPhotoPreview(String(reader.result || ""));
+  reader.readAsDataURL(file);
+}
+function removeWorkerPhoto() { setWorkerPhotoPreview(""); }
 function deleteWorker(id) {
   const entriesCount = (state.data.workerEntries||[]).filter(e => e.workerId === id).length;
   const paymentsCount = (state.data.workerPayments||[]).filter(p => p.workerId === id).length;
@@ -3609,7 +3648,7 @@ function renderWorkersTimesheet() {
 function timesheetRowHtml(w, y, m, days, todayStr) {
   const total = workerMonthTotal(w.id, y, m);
   return `<tr>
-    <td class="ts-name-cell" onclick="openTimesheetReport('${w.id}')">${esc(w.name)}</td>
+    <td class="ts-name-cell" onclick="openTimesheetReport('${w.id}')"><span class="ts-worker-name">${workerAvatarHtml(w)}<span>${esc(w.name)}</span></span></td>
     ${days.map(d => timesheetCellHtml(w, y, m, d, todayStr)).join("")}
     <td class="ts-total-cell mono">${total % 1 === 0 ? total : total.toFixed(1)}</td>
   </tr>`;
@@ -3660,7 +3699,7 @@ function workerRowHtml(w) {
   const sel = w.id === state.selectedWorkerId;
   const debt = workerDebt(w);
   return `<div class="obj-row ${sel?"selected":""}" onclick="selectWorker('${w.id}')">
-    <div class="obj-row-icon">${svgIcon("workers", 18)}</div>
+    ${workerAvatarHtml(w)}
     <div>
       <div class="obj-row-name">${esc(w.name)}</div>
       ${w.role ? `<div class="obj-row-addr">${esc(w.role)}</div>` : ""}
@@ -3682,7 +3721,9 @@ function renderWorkerDetail() {
 
   return `
     <div class="banner-card">
-      <div>
+      <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;">
+        ${workerAvatarHtml(w, "large")}
+        <div>
         <div class="banner-title">${esc(w.name)}</div>
         ${w.phone ? `<div class="banner-addr">📞 ${esc(w.phone)}</div>` : ""}
         ${w.role ? `<div class="banner-addr">🛠️ ${esc(w.role)}</div>` : ""}
@@ -3691,6 +3732,7 @@ function renderWorkerDetail() {
         ${w.startDate ? `<div class="banner-addr">Дата початку: <span class="mono">${esc(w.startDate)}</span></div>` : ""}
         <div class="banner-addr">${fmtMoney(w.dayRate, w.currency)}/день</div>
         ${w.note ? `<div class="banner-addr">📝 ${esc(w.note)}</div>` : ""}
+        </div>
       </div>
       <div style="position:relative;">
         <button class="obj-menu-btn" style="position:static;" onclick="toggleActionMenu('${w.id}', event)">⋯</button>
@@ -5841,7 +5883,18 @@ function renderModal() {
     const editing = state.modal.id ? getWorker(state.modal.id) : null;
     body = `
     <h3>${editing ? "Редагувати працівника" : "Новий працівник"}</h3>
-    <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я працівника" value="${editing ? esc(editing.name) : ""}"></div>
+    <div class="field">
+      <label>Фото</label>
+      <input id="m-worker-photo" type="hidden" value="${editing ? esc(editing.photo||"") : ""}">
+      <input id="m-worker-photo-file" type="file" accept="image/*" style="display:none" onchange="onWorkerPhotoSelected(this)">
+      <div id="m-worker-photo-preview">${workerAvatarHtml({ name: editing ? editing.name : "Працівник", photo: editing ? (editing.photo||"") : "" }, "preview")}</div>
+      <div class="worker-photo-picker">
+        <button type="button" class="ghost-btn" onclick="pickWorkerPhoto()">Додати фото</button>
+        <button type="button" class="ghost-btn" onclick="pickWorkerPhoto()">Замінити</button>
+        <button type="button" class="ghost-btn" onclick="removeWorkerPhoto()">Видалити</button>
+      </div>
+    </div>
+    <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я працівника" value="${editing ? esc(editing.name) : ""}" oninput="setWorkerPhotoPreview(val('m-worker-photo'))"></div>
     <div class="field"><label>Телефон</label><input id="m-phone" placeholder="+385 ..." value="${editing ? esc(editing.phone||"") : ""}"></div>
     <div class="field"><label>Роль</label><input id="m-role" placeholder="Напр. Плиточник" value="${editing ? esc(editing.role||"") : ""}"></div>
     <div class="field"><label>Адреса</label><input id="m-worker-address" placeholder="Вулиця, місто" value="${editing ? esc(editing.address||"") : ""}"></div>
@@ -7627,8 +7680,9 @@ function submitWorker(id) {
   const startDate = val("m-worker-start-date");
   const dayRate = val("m-dayrate");
   const currency = val("m-currency") || state.data.settings.workersCurrency;
-  if (id) updateWorker(id, n, phone, role, address, birthDate, startDate, dayRate, note, currency);
-  else createWorker(n, phone, role, address, birthDate, startDate, dayRate, note, currency);
+  const photo = val("m-worker-photo");
+  if (id) updateWorker(id, n, phone, role, address, birthDate, startDate, dayRate, note, currency, photo);
+  else createWorker(n, phone, role, address, birthDate, startDate, dayRate, note, currency, photo);
 }
 function submitWorkerEntry() {
   const workerId = state.selectedWorkerId; if (!workerId) return;
