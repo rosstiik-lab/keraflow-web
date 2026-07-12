@@ -928,9 +928,11 @@ function migrateData(data) {
   data.workers = data.workers || [];
   data.workers.forEach(w => {
     if (w.currency === undefined) w.currency = "€";
-    if (w.status === undefined) w.status = "active";
     if (w.phone === undefined) w.phone = "";
     if (w.role === undefined) w.role = "";
+    if (w.address === undefined) w.address = "";
+    if (w.birthDate === undefined) w.birthDate = "";
+    if (w.startDate === undefined) w.startDate = "";
     if (w.note === undefined) w.note = "";
   });
   data.workerEntries = data.workerEntries || [];
@@ -2143,16 +2145,16 @@ function getWorker(id) {
 }
 function selectWorker(id) { state.selectedWorkerId = id; render(); }
 function setWorkerSearch(q) { state.workerSearch = q; render(); }
-function createWorker(name, phone, role, dayRate, note, currency) {
+function createWorker(name, phone, role, address, birthDate, startDate, dayRate, note, currency) {
   state.data.workers = state.data.workers || [];
-  const w = { id: uid("worker"), name, phone, role, dayRate: Number(dayRate)||0, note, currency: currency||"€", createdAt: Date.now() };
+  const w = { id: uid("worker"), name, phone, role, address, birthDate, startDate, dayRate: Number(dayRate)||0, note, currency: currency||"€", createdAt: Date.now() };
   state.data.workers.push(w);
   state.selectedWorkerId = w.id;
   saveData(); closeModal();
 }
-function updateWorker(id, name, phone, role, dayRate, note, currency) {
+function updateWorker(id, name, phone, role, address, birthDate, startDate, dayRate, note, currency) {
   const w = getWorker(id); if (!w) return;
-  w.name = name; w.phone = phone; w.role = role; w.dayRate = Number(dayRate)||0; w.note = note; w.currency = currency||"€";
+  w.name = name; w.phone = phone; w.role = role; w.address = address; w.birthDate = birthDate; w.startDate = startDate; w.dayRate = Number(dayRate)||0; w.note = note; w.currency = currency||"€";
   saveData(); closeModal();
 }
 function deleteWorker(id) {
@@ -3684,6 +3686,9 @@ function renderWorkerDetail() {
         <div class="banner-title">${esc(w.name)}</div>
         ${w.phone ? `<div class="banner-addr">📞 ${esc(w.phone)}</div>` : ""}
         ${w.role ? `<div class="banner-addr">🛠️ ${esc(w.role)}</div>` : ""}
+        ${w.address ? `<div class="banner-addr">📍 ${esc(w.address)}</div>` : ""}
+        ${w.birthDate ? `<div class="banner-addr">Дата народження: <span class="mono">${esc(w.birthDate)}</span></div>` : ""}
+        ${w.startDate ? `<div class="banner-addr">Дата початку: <span class="mono">${esc(w.startDate)}</span></div>` : ""}
         <div class="banner-addr">${fmtMoney(w.dayRate, w.currency)}/день</div>
         ${w.note ? `<div class="banner-addr">📝 ${esc(w.note)}</div>` : ""}
       </div>
@@ -5838,7 +5843,12 @@ function renderModal() {
     <h3>${editing ? "Редагувати працівника" : "Новий працівник"}</h3>
     <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я працівника" value="${editing ? esc(editing.name) : ""}"></div>
     <div class="field"><label>Телефон</label><input id="m-phone" placeholder="+385 ..." value="${editing ? esc(editing.phone||"") : ""}"></div>
-    <div class="field"><label>Спеціальність</label><input id="m-role" placeholder="Напр. Плиточник" value="${editing ? esc(editing.role||"") : ""}"></div>
+    <div class="field"><label>Роль</label><input id="m-role" placeholder="Напр. Плиточник" value="${editing ? esc(editing.role||"") : ""}"></div>
+    <div class="field"><label>Адреса</label><input id="m-worker-address" placeholder="Вулиця, місто" value="${editing ? esc(editing.address||"") : ""}"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="field" style="flex:1"><label>Дата народження</label><input id="m-worker-birth-date" type="date" value="${editing ? esc(editing.birthDate||"") : ""}"></div>
+      <div class="field" style="flex:1"><label>Дата початку</label><input id="m-worker-start-date" type="date" value="${editing ? esc(editing.startDate||"") : ""}"></div>
+    </div>
     <div style="display:flex;gap:10px;">
       <div class="field" style="flex:1"><label>Денна ставка / день</label><input id="m-dayrate" type="number" inputmode="decimal" value="${editing ? editing.dayRate : ""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing ? editing.currency : state.data.settings.workersCurrency)}</select></div>
@@ -7612,10 +7622,13 @@ function submitClient(id) {
 function submitWorker(id) {
   const n = val("m-name"); if (!n) return;
   const phone = val("m-phone"), role = val("m-role"), note = val("m-note");
+  const address = val("m-worker-address");
+  const birthDate = val("m-worker-birth-date");
+  const startDate = val("m-worker-start-date");
   const dayRate = val("m-dayrate");
   const currency = val("m-currency") || state.data.settings.workersCurrency;
-  if (id) updateWorker(id, n, phone, role, dayRate, note, currency);
-  else createWorker(n, phone, role, dayRate, note, currency);
+  if (id) updateWorker(id, n, phone, role, address, birthDate, startDate, dayRate, note, currency);
+  else createWorker(n, phone, role, address, birthDate, startDate, dayRate, note, currency);
 }
 function submitWorkerEntry() {
   const workerId = state.selectedWorkerId; if (!workerId) return;
