@@ -1866,7 +1866,7 @@ function toggleFeedReport(id) {
 }
 function openMaterialsReportPreview() {
   const o = getObj(); if (!o) return;
-  const openItems = (o.materialItems||[]).filter(it => it.reportId === null && (it.type === "material" || it.type === "receipt"));
+  const openItems = (o.materialItems||[]).filter(it => it.reportId === null && (it.type === "material" || it.type === "receipt") && !it.isDebt);
   if (!openItems.length) {
     state.modal = { type: "materialReportEmpty" };
     render();
@@ -1877,7 +1877,7 @@ function openMaterialsReportPreview() {
 }
 function saveMaterialsReport() {
   const o = getObj(); if (!o) return;
-  const openItems = (o.materialItems||[]).filter(it => it.reportId === null && (it.type === "material" || it.type === "receipt"));
+  const openItems = (o.materialItems||[]).filter(it => it.reportId === null && (it.type === "material" || it.type === "receipt") && !it.isDebt);
   if (!openItems.length) { closeModal(); return; }
   o.materialReports = o.materialReports || [];
   const number = o.materialReports.length + 1;
@@ -3108,9 +3108,17 @@ function renderWorkspaceTab(obj) {
   `;
 }
 
+function materialCategoryOptionsHtml(obj) {
+  const categories = [...new Set((obj && obj.materialItems || [])
+    .filter(it => it.type === "material" && it.category)
+    .map(it => it.category))].sort((a,b) => a.localeCompare(b, "uk"));
+  return categories.map(category => `<option value="${esc(category)}"></option>`).join("");
+}
+
 function renderMaterialsHeaderStats(obj) {
   const items = obj.materialItems || [];
-  const materialsByCur = sumByCurrency(items.filter(it => it.type==="material"), m => m.qty*m.price);
+  const reportableItems = items.filter(it => (it.type==="material" || it.type==="receipt") && !it.isDebt);
+  const materialsByCur = sumByCurrency(reportableItems, it => it.type==="material" ? it.qty*it.price : it.amount);
   const paidByCustomerByCur = sumByCurrency(items.filter(it => it.type==="payment" && it.paymentType==="customer"), p => p.amount);
   const customerDebtByCur = {};
   new Set([...Object.keys(materialsByCur), ...Object.keys(paidByCustomerByCur)]).forEach(cur => {
@@ -3121,7 +3129,7 @@ function renderMaterialsHeaderStats(obj) {
   const fallbackCur = state.data.settings.materialsCurrency;
   return `
   <div class="obj-header-stats-row">
-    <div class="obj-header-stat"><div class="obj-header-stat-label">СУМА МАТЕРІАЛІВ</div><div class="obj-header-stat-val mono">${currencyBreakdownHtml(materialsByCur, fallbackCur)}</div></div>
+    <div class="obj-header-stat"><div class="obj-header-stat-label">СУМА МАТЕРІАЛІВ І ЧЕКІВ</div><div class="obj-header-stat-val mono">${currencyBreakdownHtml(materialsByCur, fallbackCur)}</div></div>
     <div class="obj-header-stat"><div class="obj-header-stat-label">ОПЛАЧЕНО ЗАМОВНИКОМ</div><div class="obj-header-stat-val green mono">${currencyBreakdownHtml(paidByCustomerByCur, fallbackCur)}</div></div>
     <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ЗАМОВНИКА</div><div class="obj-header-stat-val amber mono">${currencyBreakdownHtml(customerDebtByCur, fallbackCur)}</div></div>
     <div class="obj-header-stat"><div class="obj-header-stat-label">БОРГ ПЕРЕД ПОСТАЧАЛЬНИКОМ</div><div class="obj-header-stat-val red mono">${currencyBreakdownHtml(supplierDebtByCur, fallbackCur)}</div></div>
@@ -3159,7 +3167,7 @@ function feedItemRowHtml(item) {
     return `<div class="work-row">
       <div style="flex:1">
         <div class="w-name">${esc(item.name)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
-        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} ${item.currency||"€"}/${esc(item.unit)}</span></div>
+        <div class="w-meta">${item.category?`<span>${esc(item.category)}</span>`:""}<span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} ${item.currency||"€"}/${esc(item.unit)}</span></div>
       </div>
       <button class="w-del" title="Редагувати" onclick="openModal('material','${item.id}')">✎</button>
       <button class="w-del" title="Видалити" onclick="deleteMaterialItem('${item.id}')">✕</button>
@@ -3192,7 +3200,7 @@ function feedItemSummaryHtml(item) {
     return `<div class="work-row" style="margin-bottom:0;">
       <div style="flex:1">
         <div class="w-name">${esc(item.name)}${item.isDebt ? ` <span style="color:var(--red);font-weight:700;">· борг</span>` : ""}</div>
-        <div class="w-meta"><span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} ${item.currency||"€"}/${esc(item.unit)}</span></div>
+        <div class="w-meta">${item.category?`<span>${esc(item.category)}</span>`:""}<span class="mono">${item.qty} ${esc(item.unit)}</span><span class="mono">${item.price} ${item.currency||"€"}/${esc(item.unit)}</span></div>
       </div>
       <div class="mono" style="font-weight:800;">${fmtMoney(item.qty*item.price, item.currency)}</div>
     </div>`;
@@ -6372,6 +6380,9 @@ function renderModal() {
     </div>` : ""}
     ${mode === "material" ? `
     <div class="field"><label>Назва</label><input id="m-name" placeholder="Напр. Клей для плитки" value="${editing?esc(editing.name):""}"></div>
+    <div class="field"><label>Категорія</label><input id="m-category" list="material-category-list" placeholder="Напр. Клей, затирка, інструмент" value="${editing?esc(editing.category||""):""}">
+      <datalist id="material-category-list">${materialCategoryOptionsHtml(o0)}</datalist>
+    </div>
     <div style="display:flex;gap:10px;">
       <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing?editing.qty:""}"></div>
       <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing?esc(editing.unit):"шт"}"></div>
@@ -6415,7 +6426,7 @@ function renderModal() {
       <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
     </div>
-    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):""}"></div>
+    <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):nowDatetimeLocal()}"></div>
     <div class="field"><label>Примітка</label><input id="m-note" placeholder="Необов'язково" value="${editing?esc(editing.note||""):""}"></div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
@@ -6480,7 +6491,7 @@ function renderModal() {
         <div class="work-row">
           <div style="flex:1">
             <div class="w-name">${esc(m.name)}</div>
-            <div class="w-meta"><span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} ${m.currency||"€"}/${esc(m.unit)}</span></div>
+            <div class="w-meta">${m.category?`<span>${esc(m.category)}</span>`:""}<span class="mono">${m.qty} ${esc(m.unit)}</span><span class="mono">${m.price} ${m.currency||"€"}/${esc(m.unit)}</span></div>
           </div>
           <div class="mono" style="font-weight:800;">${fmtMoney(m.qty*m.price, m.currency)}</div>
         </div>
@@ -7896,7 +7907,7 @@ function submitMaterialItem(id) {
   const currency = val("m-currency") || state.data.settings.materialsCurrency;
   if (mode === "material") {
     const n = val("m-name"); if (!n) return;
-    const fields = { type: "material", name: n, unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, date: val("m-date"), isDebt, currency };
+    const fields = { type: "material", name: n, category: val("m-category"), unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, date: val("m-date"), isDebt, currency };
     if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   } else {
     const amount = Number(val("m-amount")); if (!amount) return;
