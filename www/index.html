@@ -435,6 +435,7 @@ input, select { font-family: inherit; }
 .worker-modal .worker-avatar.preview { width: 64px; height: 64px; font-size: 22px; margin: 0 auto 8px; }
 .worker-modal .worker-photo-picker { flex-wrap: nowrap; gap: 6px; justify-content: center; margin-top: 4px; }
 .worker-modal .worker-photo-picker .ghost-btn { padding: 7px 8px; border-radius: 8px; font-size: 11.5px; white-space: nowrap; }
+.worker-photo-error { margin-top: 6px; color: var(--red); font-size: 11.5px; font-weight: 700; text-align: center; min-height: 16px; }
 .worker-modal .modal-actions { margin-top: 6px; }
 @media (max-width: 360px) {
   .worker-modal .worker-photo-picker .ghost-btn { padding: 7px 6px; font-size: 11px; }
@@ -2204,6 +2205,10 @@ function workerPhotoActionsHtml(photo) {
         <button type="button" class="ghost-btn" onclick="pickWorkerPhoto()">${hasPhoto ? "Замінити фото" : "Додати фото"}</button>
         ${hasPhoto ? `<button type="button" class="ghost-btn" onclick="removeWorkerPhoto()">Видалити фото</button>` : ""}`;
 }
+function setWorkerPhotoError(message) {
+  const error = document.getElementById("m-worker-photo-error");
+  if (error) error.textContent = message || "";
+}
 function setWorkerPhotoPreview(photo) {
   const nextPhoto = photo || "";
   const hidden = document.getElementById("m-worker-photo");
@@ -2242,8 +2247,12 @@ async function compressWorkerPhoto(file) {
           return;
         }
 
-        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
+        try {
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        } catch (err) {
+          reject(err);
+        }
       };
       img.src = String(reader.result || "");
     };
@@ -2253,16 +2262,23 @@ async function compressWorkerPhoto(file) {
 async function onWorkerPhotoSelected(input) {
   const file = input && input.files && input.files[0];
   if (!file) return;
+  if (!file.type || !file.type.startsWith("image/")) {
+    setWorkerPhotoError("Оберіть файл зображення");
+    input.value = "";
+    return;
+  }
   try {
     const compressedPhoto = await compressWorkerPhoto(file);
     setWorkerPhotoPreview(compressedPhoto);
+    setWorkerPhotoError("");
   } catch (err) {
     console.error("Worker photo compression failed", err);
+    setWorkerPhotoError("Не вдалося обробити фото");
   } finally {
     input.value = "";
   }
 }
-function removeWorkerPhoto() { setWorkerPhotoPreview(""); }
+function removeWorkerPhoto() { setWorkerPhotoPreview(""); setWorkerPhotoError(""); }
 function deleteWorker(id) {
   const entriesCount = (state.data.workerEntries||[]).filter(e => e.workerId === id).length;
   const paymentsCount = (state.data.workerPayments||[]).filter(p => p.workerId === id).length;
@@ -5956,6 +5972,7 @@ function renderModal() {
       <input id="m-worker-photo-file" type="file" accept="image/*" style="display:none" onchange="onWorkerPhotoSelected(this)">
       <div id="m-worker-photo-preview">${workerAvatarHtml({ name: editing ? editing.name : "Працівник", photo: editing ? (editing.photo||"") : "" }, "preview")}</div>
       <div id="m-worker-photo-actions" class="worker-photo-picker">${workerPhotoActionsHtml(editing ? (editing.photo||"") : "")}</div>
+      <div id="m-worker-photo-error" class="worker-photo-error" aria-live="polite"></div>
     </div>
     <div class="field"><label>Ім'я</label><input id="m-name" placeholder="Ім'я працівника" value="${editing ? esc(editing.name) : ""}" oninput="setWorkerPhotoPreview(val('m-worker-photo'))"></div>
     <div class="field"><label>Телефон</label><input id="m-phone" placeholder="+385 ..." value="${editing ? esc(editing.phone||"") : ""}"></div>
