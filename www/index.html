@@ -2275,6 +2275,10 @@ async function onWorkerPhotoSelected(input) {
   }
   try {
     const compressedPhoto = await compressWorkerPhoto(file);
+    if (!compressedPhoto.startsWith("data:image/jpeg")) {
+      setWorkerPhotoError("Не вдалося обробити фото");
+      return;
+    }
     setWorkerPhotoPreview(compressedPhoto);
     setWorkerPhotoError("");
   } catch (err) {
