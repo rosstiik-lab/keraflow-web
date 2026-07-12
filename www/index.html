@@ -205,6 +205,19 @@ input, select { font-family: inherit; }
 .obj-row.has-menu .obj-row-name { padding-right: 64px; }
 .obj-row-addr { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
 .obj-row-status { color: var(--amber); font-weight: 700; font-size: 11.5px; margin-top: 3px; }
+.worker-row-body { min-width: 0; flex: 1; }
+.worker-row-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+.worker-row-meta span, .worker-row-status { overflow-wrap: anywhere; word-break: break-word; }
+.worker-row-meta a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted); }
+.worker-row-finance { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; font-size: 11.5px; }
+.worker-row-finance span { font-weight: 800; }
+.worker-detail-main { min-width: 0; flex: 1; }
+.worker-detail-info { display: grid; gap: 7px; margin-top: 10px; }
+.worker-detail-line { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; word-break: break-word; }
+.worker-detail-line a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted); }
+.worker-detail-line strong { color: var(--text); font-weight: 800; }
+.worker-empty-card { padding: 18px; text-align: center; }
+.worker-empty-card .big { margin-bottom: 8px; }
 
 /* ---------- Objects list: search / groups / progress / menu ---------- */
 .search-wrap { position: relative; margin-bottom: 14px; }
@@ -279,6 +292,15 @@ input, select { font-family: inherit; }
 .obj-header-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0 2px 10px; margin-top: 14px; }
 @media (max-width: 640px) {
   .obj-header-stats-row { grid-template-columns: repeat(2, 1fr); }
+  .banner-card { padding: 14px; gap: 12px; }
+  .banner-title { font-size: 22px; }
+  .worker-avatar.large { width: 64px; height: 64px; }
+  .worker-detail-info { width: 100%; }
+  .worker-row-finance { flex-direction: column; gap: 2px; }
+}
+@media (max-width: 360px) {
+  .worker-avatar.large { width: 58px; height: 58px; }
+  .obj-row { padding: 10px 12px; gap: 10px; }
 }
 .obj-header-stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .obj-header-stat-label { font-size: 9px; color: var(--muted); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
@@ -293,7 +315,7 @@ input, select { font-family: inherit; }
   display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
 }
 .banner-title { font-size: 26px; font-weight: 800; margin-top: 10px; }
-.banner-addr { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.banner-addr { color: var(--muted); font-size: 13px; margin-top: 6px; overflow-wrap: anywhere; word-break: break-word; }
 
 .section-card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px; margin-top: 18px; }
 .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
@@ -1490,6 +1512,17 @@ function nowDatetimeLocal() {
   const d = new Date();
   const pad = n => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function formatDateDisplay(dateStr) {
+  if (!dateStr) return "—";
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+function telHref(phone) {
+  return `tel:${String(phone||"").replace(/[^+\d]/g, "")}`;
 }
 function timeAgo(ts) {
   if (!ts) return "—";
@@ -3818,7 +3851,7 @@ function timesheetCellHtml(w, y, m, d, todayStr) {
 function renderWorkersList() {
   const workers = (state.data.workers || []).slice();
   const q = (state.workerSearch || "").trim().toLowerCase();
-  const filtered = q ? workers.filter(w => w.name.toLowerCase().includes(q) || (w.role||"").toLowerCase().includes(q)) : workers;
+  const filtered = q ? workers.filter(w => [w.name, w.role, w.phone, w.address].join(" ").toLowerCase().includes(q)) : workers;
   filtered.sort((a,b) => a.name.localeCompare(b.name, "uk"));
   return `<div class="cols">
     <div class="panel">
@@ -3828,7 +3861,7 @@ function renderWorkersList() {
       </div>
       <div class="search-wrap">
         <span class="search-ico">${svgIcon("search", 16)}</span>
-        <input id="worker-search-input" type="text" placeholder="Пошук за іменем чи роллю…" value="${esc(state.workerSearch||"")}" oninput="setWorkerSearch(this.value)">
+        <input id="worker-search-input" type="text" placeholder="Пошук за іменем, роллю, телефоном чи адресою…" value="${esc(state.workerSearch||"")}" oninput="setWorkerSearch(this.value)">
       </div>
       ${filtered.map(w => workerRowHtml(w)).join("") || `<div class="empty-slot">${q ? "Нічого не знайдено." : "Ще немає жодного працівника."}</div>`}
       <button class="dashed-btn" onclick="openModal('worker')">+ Працівник</button>
@@ -3839,22 +3872,32 @@ function renderWorkersList() {
 function workerRowHtml(w) {
   const sel = w.id === state.selectedWorkerId;
   const debt = workerDebt(w);
+  const debtLabel = debt < -0.005 ? "Переплата" : "Борг";
+  const debtClass = debt > 0.005 ? "red" : debt < -0.005 ? "green" : "amber";
   return `<div class="obj-row ${sel?"selected":""}" onclick="selectWorker('${w.id}')">
     ${workerAvatarHtml(w)}
-    <div>
+    <div class="worker-row-body">
       <div class="obj-row-name">${esc(w.name)}</div>
-      ${w.role ? `<div class="obj-row-addr">${esc(w.role)}</div>` : ""}
-      ${debt > 0.005 ? `<div class="obj-row-status" style="color:var(--red);">Борг: ${fmtMoney(debt, w.currency)}</div>` : ""}
+      <div class="worker-row-meta">
+        ${w.role ? `<span>🛠️ ${esc(w.role)}</span>` : `<span>Роль не вказана</span>`}
+        ${w.phone ? `<span>📞 <a href="${esc(telHref(w.phone))}" onclick="event.stopPropagation()">${esc(w.phone)}</a></span>` : `<span>Телефон не вказано</span>`}
+      </div>
+      <div class="worker-row-finance">
+        <span class="mono">Ставка: ${fmtMoney(w.dayRate, w.currency)}/день</span>
+        <span class="mono" style="color:var(--${debtClass});">${debtLabel}: ${fmtMoney(Math.abs(debt), w.currency)}</span>
+      </div>
     </div>
   </div>`;
 }
 function renderWorkerDetail() {
   const w = getWorker(state.selectedWorkerId);
-  if (!w) return `<div class="panel placeholder"><div class="big">${svgIcon("workers", 40)}</div><div class="t">Оберіть працівника</div>Або створіть першого працівника зліва.</div>`;
+  if (!w) return `<div class="panel placeholder worker-empty-card"><div class="big">${svgIcon("workers", 32)}</div><div class="t">Оберіть працівника</div></div>`;
 
   const earned = workerEarned(w);
   const paid = workerPaid(w);
   const debt = earned - paid;
+  const balanceLabel = debt < -0.005 ? "Переплата" : "Борг працівнику";
+  const balanceClass = debt < -0.005 ? "green" : debt > 0.005 ? "amber" : "green";
 
   const entries = (state.data.workerEntries||[]).filter(e => e.workerId === w.id).map(e => ({ ...e, kind: "entry", sortKey: e.date ? new Date(e.date).getTime() : 0 }));
   const payments = (state.data.workerPayments||[]).filter(p => p.workerId === w.id).map(p => ({ ...p, kind: "payment", sortKey: p.date ? new Date(p.date).getTime() : 0 }));
@@ -3862,20 +3905,22 @@ function renderWorkerDetail() {
 
   return `
     <div class="banner-card">
-      <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;">
+      <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; min-width:0; flex:1;">
         ${workerAvatarHtml(w, "large")}
-        <div>
-        <div class="banner-title">${esc(w.name)}</div>
-        ${w.phone ? `<div class="banner-addr">📞 ${esc(w.phone)}</div>` : ""}
-        ${w.role ? `<div class="banner-addr">🛠️ ${esc(w.role)}</div>` : ""}
-        ${w.address ? `<div class="banner-addr">📍 ${esc(w.address)}</div>` : ""}
-        ${w.birthDate ? `<div class="banner-addr">Дата народження: <span class="mono">${esc(w.birthDate)}</span></div>` : ""}
-        ${w.startDate ? `<div class="banner-addr">Дата початку: <span class="mono">${esc(w.startDate)}</span></div>` : ""}
-        <div class="banner-addr">${fmtMoney(w.dayRate, w.currency)}/день</div>
-        ${w.note ? `<div class="banner-addr">📝 ${esc(w.note)}</div>` : ""}
+        <div class="worker-detail-main">
+          <div class="banner-title">${esc(w.name)}</div>
+          <div class="worker-detail-info">
+            <div class="worker-detail-line"><strong>Роль:</strong> ${esc(w.role || "—")}</div>
+            <div class="worker-detail-line"><strong>Телефон:</strong> ${w.phone ? `<a href="${esc(telHref(w.phone))}" onclick="event.stopPropagation()">${esc(w.phone)}</a>` : "—"}</div>
+            <div class="worker-detail-line"><strong>Адреса:</strong> ${esc(w.address || "—")}</div>
+            <div class="worker-detail-line"><strong>Дата народження:</strong> <span class="mono">${esc(formatDateDisplay(w.birthDate))}</span></div>
+            <div class="worker-detail-line"><strong>Дата початку роботи:</strong> <span class="mono">${esc(formatDateDisplay(w.startDate))}</span></div>
+            <div class="worker-detail-line"><strong>Денна ставка:</strong> <span class="mono">${fmtMoney(w.dayRate, w.currency)}/день</span></div>
+            <div class="worker-detail-line"><strong>Примітка:</strong> ${esc(w.note || "—")}</div>
+          </div>
         </div>
       </div>
-      <div style="position:relative;">
+      <div style="position:relative; flex-shrink:0;">
         <button class="obj-menu-btn" style="position:static;" onclick="toggleActionMenu('${w.id}', event)">⋯</button>
         ${state.openActionMenuId === w.id ? workerActionMenuHtml(w) : ""}
       </div>
@@ -3883,7 +3928,7 @@ function renderWorkerDetail() {
     <div class="room-stats" style="grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); margin: 14px 0;">
       <div class="mini-stat"><div class="mini-stat-label">ЗАРОБЛЕНО</div><div class="mini-stat-val mono">${fmtMoney(earned, w.currency)}</div></div>
       <div class="mini-stat"><div class="mini-stat-label">ВИПЛАЧЕНО</div><div class="mini-stat-val green mono">${fmtMoney(paid, w.currency)}</div></div>
-      <div class="mini-stat"><div class="mini-stat-label">${debt < -0.005 ? "ПЕРЕПЛАТА" : "БОРГ ПРАЦІВНИКУ"}</div><div class="mini-stat-val ${debt<-0.005?"green":"amber"} mono">${fmtMoney(Math.abs(debt), w.currency)}</div></div>
+      <div class="mini-stat"><div class="mini-stat-label">${balanceLabel.toUpperCase()}</div><div class="mini-stat-val ${balanceClass} mono">${fmtMoney(Math.abs(debt), w.currency)}</div></div>
     </div>
     <div class="btn-row" style="margin-bottom:14px;">
       <button class="ghost-btn" onclick="openWorkerEntryModal()">Додати дні</button>
@@ -3913,7 +3958,7 @@ function workerEntryRowHtml(e, w) {
   return `<div class="work-row">
     <div style="flex:1">
       <div class="w-name">${e.days} дн.${obj ? ` · ${esc(obj.name)}` : ""} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;">Виробіток</span></div>
-      <div class="w-meta"><span class="mono">${esc(e.date||"—")}</span><span class="mono">${fmtMoney(sum, w.currency)}</span>${e.note?`<span>${esc(e.note)}</span>`:""}</div>
+      <div class="w-meta"><span class="mono">${esc(formatDateDisplay(e.date))}</span><span class="mono">${fmtMoney(sum, w.currency)}</span>${e.note?`<span>${esc(e.note)}</span>`:""}</div>
     </div>
     <button class="w-del" title="Редагувати" onclick="openWorkerEntryModal('${e.id}')">✎</button>
     <button class="w-del" title="Видалити" onclick="openModal('deleteWorkerEntry','${e.id}')">✕</button>
@@ -3923,7 +3968,7 @@ function workerPaymentRowHtml(p, w) {
   return `<div class="work-row">
     <div style="flex:1">
       <div class="w-name">${fmtMoney(p.amount, w.currency)} <span class="pct-pill mono" style="font-size:10px;padding:2px 8px;background:var(--green);color:#06120B;">Виплата</span></div>
-      <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
+      <div class="w-meta"><span class="mono">${esc(formatDateDisplay(p.date))}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
     </div>
     <button class="w-del" title="Редагувати" onclick="openWorkerPaymentModal('${p.id}')">✎</button>
     <button class="w-del" title="Видалити" onclick="openModal('deleteWorkerPayment','${p.id}')">✕</button>
@@ -6089,7 +6134,7 @@ function renderModal() {
     if (e) body = `
     <h3>Видалити запис?</h3>
     <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
-      Видалити запис про ${e.days} дн. від ${esc(e.date||"—")}?
+      Видалити запис про ${e.days} дн. від ${esc(formatDateDisplay(e.date))}?
     </p>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
@@ -6102,7 +6147,7 @@ function renderModal() {
     if (p) body = `
     <h3>Видалити виплату?</h3>
     <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;">
-      Видалити виплату ${fmtMoney(p.amount, pw?pw.currency:"€")} від ${esc(p.date||"—")}?
+      Видалити виплату ${fmtMoney(p.amount, pw?pw.currency:"€")} від ${esc(formatDateDisplay(p.date))}?
     </p>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Скасувати</button>
@@ -6483,7 +6528,7 @@ function renderModal() {
       return `<div class="work-row">
         <div style="flex:1">
           <div class="w-name">${fmtMoney(p.amount, p.currency)} <span style="font-size:10.5px;font-weight:700;color:var(--muted);">· ${esc(badge)}</span></div>
-          <div class="w-meta"><span class="mono">${esc(p.date||"—")}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
+          <div class="w-meta"><span class="mono">${esc(formatDateDisplay(p.date))}</span>${p.note?`<span>${esc(p.note)}</span>`:""}</div>
         </div>
       </div>`;
     }).join("") : `<div class="empty-slot">Ще немає жодної оплати.</div>`}
