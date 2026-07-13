@@ -1481,7 +1481,13 @@ const CURRENCY_LIST = [
   { code: "$", label: "Долар" },
 ];
 const mainCurrency = () => (state.data.settings && state.data.settings.mainCurrency) || "€";
-const fmtMoney = (n, currency) => `${(Number(n)||0).toFixed(2)} ${currency||"€"}`;
+const parseDecimal = value => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value ?? "").trim().replace(/\s/g, "").replace(",", ".");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
+};
+const fmtMoney = (n, currency) => `${parseDecimal(n).toFixed(2)} ${currency||"€"}`;
 const fmtEUR = n => fmtMoney(n, mainCurrency());
 function currencyOptionsHtml(selected) {
   return CURRENCY_LIST.map(c => `<option value="${c.code}" ${selected===c.code?"selected":""}>${c.code} ${c.label}</option>`).join("");
@@ -6384,17 +6390,17 @@ function renderModal() {
       <datalist id="material-category-list">${materialCategoryOptionsHtml(o0)}</datalist>
     </div>
     <div style="display:flex;gap:10px;">
-      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="number" inputmode="decimal" value="${editing?editing.qty:""}"></div>
+      <div class="field" style="flex:1"><label>Кількість</label><input id="m-qty" type="text" inputmode="decimal" value="${editing?editing.qty:""}"></div>
       <div class="field" style="flex:1"><label>Одиниця</label><input id="m-unit" value="${editing?esc(editing.unit):"шт"}"></div>
     </div>
     <div style="display:flex;gap:10px;">
-      <div class="field" style="flex:1"><label>Ціна за одиницю</label><input id="m-price" type="number" inputmode="decimal" value="${editing?editing.price:""}"></div>
+      <div class="field" style="flex:1"><label>Ціна за одиницю</label><input id="m-price" type="text" inputmode="decimal" value="${editing?editing.price:""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
     </div>
     <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):nowDatetimeLocal()}"></div>
     ` : `
     <div style="display:flex;gap:10px;">
-      <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+      <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="text" inputmode="decimal" value="${editing?editing.amount:""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
     </div>
     <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):nowDatetimeLocal()}"></div>
@@ -6423,7 +6429,7 @@ function renderModal() {
       <button class="modal-toggle-btn ${pType==="debt"?"selected":""}" onclick="setMaterialPaymentType('debt')">Оплата боргу постачальнику</button>
     </div>
     <div style="display:flex;gap:10px;">
-      <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="number" inputmode="decimal" value="${editing?editing.amount:""}"></div>
+      <div class="field" style="flex:1"><label>Сума</label><input id="m-amount" type="text" inputmode="decimal" value="${editing?editing.amount:""}"></div>
       <div class="field" style="width:100px;"><label>Валюта</label><select id="m-currency">${currencyOptionsHtml(editing?editing.currency:state.data.settings.materialsCurrency)}</select></div>
     </div>
     <div class="field"><label>Дата й час</label><input id="m-date" type="datetime-local" value="${editing?esc(editing.date||""):nowDatetimeLocal()}"></div>
@@ -7808,13 +7814,13 @@ function submitWork() {
     if (!editing) return;
     if (editing.priceItemId) {
       updateWork(id, {
-        qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, note: val("m-note"),
+        qty: parseDecimal(val("m-qty")), price: parseDecimal(val("m-price")), note: val("m-note"),
       });
     } else {
       const n = val("m-name"); if (!n) return;
       updateWork(id, {
         name: n, unit: val("m-unit")||"шт",
-        qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, note: val("m-note"),
+        qty: parseDecimal(val("m-qty")), price: parseDecimal(val("m-price")), note: val("m-note"),
       });
     }
     return;
@@ -7907,17 +7913,17 @@ function submitMaterialItem(id) {
   const currency = val("m-currency") || state.data.settings.materialsCurrency;
   if (mode === "material") {
     const n = val("m-name"); if (!n) return;
-    const fields = { type: "material", name: n, category: val("m-category"), unit: val("m-unit")||"шт", qty: Number(val("m-qty"))||0, price: Number(val("m-price"))||0, date: val("m-date"), isDebt, currency };
+    const fields = { type: "material", name: n, category: val("m-category"), unit: val("m-unit")||"шт", qty: parseDecimal(val("m-qty")), price: parseDecimal(val("m-price")), date: val("m-date"), isDebt, currency };
     if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   } else {
-    const amount = Number(val("m-amount")); if (!amount) return;
+    const amount = parseDecimal(val("m-amount")); if (!amount) return;
     const photo = state.modal.photoData !== undefined ? state.modal.photoData : (editing ? editing.photo : null);
     const fields = { type: "receipt", amount, date: val("m-date"), note: val("m-note"), isDebt, photo: photo||null, currency };
     if (editing) updateMaterialItem(id, fields); else createMaterialItem(fields);
   }
 }
 function submitMaterialPayment(id) {
-  const amount = Number(val("m-amount")); if (!amount) return;
+  const amount = parseDecimal(val("m-amount")); if (!amount) return;
   const o = getObj();
   const editing = id && o ? (o.materialItems||[]).find(it => it.id === id) : null;
   const paymentType = state.modal.paymentType || (editing ? editing.paymentType : "customer");
