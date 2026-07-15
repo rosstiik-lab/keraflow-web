@@ -3460,7 +3460,7 @@ function renderSupabasePrice() {
     orderedGroups.push({ category: { id: "__uncategorized", name: "Без категорії", sortOrder: 999999 }, items: groupedItems.get("__uncategorized") });
   }
   const isEmpty = !categories.length && !units.length && !items.length;
-  const importButton = isEmpty ? `<button class="primary-btn" onclick="importLocalPriceToSupabase()" ${state.supabaseImportInProgress ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт локального прайсу в Supabase"}</button>` : "";
+  const importButton = isEmpty ? `<button class="amber-btn" onclick="importLocalPriceToSupabase()" ${state.supabaseImportInProgress ? "disabled" : ""}>${state.supabaseImportInProgress ? "Імпортуємо..." : "Імпорт локального прайсу в Supabase"}</button>` : "";
 
   return `
     <div class="eyebrow">Бібліотека</div>
@@ -5386,7 +5386,7 @@ function renderSupabaseCloudPreview() {
   const objectList = Array.isArray(preview.objects) ? preview.objects : [];
   const message = preview.error || preview.report;
   return `
-    ${message ? `<div class="auth-message ${preview.error ? "err" : "ok"}" style="margin-top:12px;">${esc(message)}</div>` : ""}
+    ${message ? `<div class="auth-message ${preview.error ? "error" : "ok"}" style="margin-top:12px;">${esc(message)}</div>` : ""}
     ${objectList.length ? `<div style="display:grid;gap:8px;margin-top:12px;">
       ${objectList.map(obj => `<div class="work-row">
         <div style="flex:1">
@@ -5454,11 +5454,11 @@ function renderSupabaseCloudSettings() {
         <button class="ghost-btn" onclick="disableSupabaseCloudModeFromSettings()" ${state.supabaseReadLoading ? "disabled" : ""}>Вимкнути хмарний режим</button>
         <button class="ghost-btn" onclick="refreshSupabaseCloudData()" ${state.supabaseReadLoading ? "disabled" : ""}>Оновити хмарні дані</button>
         <button class="ghost-btn" onclick="exportSupabaseCloudBackup()" ${exportDisabled ? "disabled" : ""}>${exportButtonText}</button>
-        <button class="primary-btn" onclick="importBasicLocalDataToSupabase()" ${importDisabled ? "disabled" : ""}>${importButtonText}</button>
+        <button class="amber-btn" onclick="importBasicLocalDataToSupabase()" ${importDisabled ? "disabled" : ""}>${importButtonText}</button>
       </div>
-      ${hasCloudData ? `<div class="auth-message err" style="margin-top:12px;">У Supabase вже є хмарні дані. Повторний імпорт заблоковано, щоб не створити дублікати.</div>` : ""}
-      ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
-      ${state.supabaseCloudExportReport ? `<div class="auth-message ${state.supabaseCloudExportReport.startsWith("Помилка") ? "err" : "ok"}" style="margin-top:12px;">${esc(state.supabaseCloudExportReport)}</div>` : ""}
+      ${hasCloudData ? `<div class="auth-message error" style="margin-top:12px;">У Supabase вже є хмарні дані. Повторний імпорт заблоковано, щоб не створити дублікати.</div>` : ""}
+      ${state.supabaseImportPreviewReport ? `<div class="auth-message ${state.authMessageType === "error" ? "error" : "ok"}" style="margin-top:12px;">${esc(state.supabaseImportPreviewReport)}</div>` : ""}
+      ${state.supabaseCloudExportReport ? `<div class="auth-message ${state.supabaseCloudExportReport.startsWith("Помилка") ? "error" : "ok"}" style="margin-top:12px;">${esc(state.supabaseCloudExportReport)}</div>` : ""}
       ${state.supabaseReadLoading ? `<div class="auth-message ok" style="margin-top:12px;">Завантажуємо хмарні дані...</div>` : ""}
       ${state.supabaseReadError ? `<div class="auth-message error" style="margin-top:12px;">${esc(state.supabaseReadError)}</div>` : ""}
       <div class="auth-message ${state.supabaseReadMode ? "ok" : ""}" style="margin-top:12px;">${esc(modeMessage)}</div>
