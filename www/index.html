@@ -1927,15 +1927,26 @@ function toggleActWorkSelect(workId) {
   else state.modal.selected[workId] = true;
   render();
 }
+function setActWorksSelection(works, shouldSelect) {
+  if (!state.modal) return;
+  state.modal.selected = state.modal.selected || {};
+  works.filter(w => !w.actId).forEach(w => {
+    if (shouldSelect) state.modal.selected[w.id] = true;
+    else delete state.modal.selected[w.id];
+  });
+}
 function toggleActRoomSelectAll(roomId) {
   const o = getObj(); const room = o && o.rooms.find(r => r.id === roomId); if (!room || !state.modal) return;
-  state.modal.selected = state.modal.selected || {};
   const availableWorks = room.works.filter(w => !w.actId);
-  const allSelected = availableWorks.length > 0 && availableWorks.every(w => state.modal.selected[w.id]);
-  availableWorks.forEach(w => {
-    if (allSelected) delete state.modal.selected[w.id];
-    else state.modal.selected[w.id] = true;
-  });
+  const allSelected = availableWorks.length > 0 && availableWorks.every(w => state.modal.selected && state.modal.selected[w.id]);
+  setActWorksSelection(availableWorks, !allSelected);
+  render();
+}
+function toggleActZoneSelectAll(zoneId) {
+  const o = getObj(); const zone = o && (o.zones || []).find(z => z.id === zoneId); if (!o || !zone || !state.modal) return;
+  const zoneWorks = o.rooms.filter(r => zone.roomIds.includes(r.id)).flatMap(r => r.works || []).filter(w => !w.actId);
+  const allSelected = zoneWorks.length > 0 && zoneWorks.every(w => state.modal.selected && state.modal.selected[w.id]);
+  setActWorksSelection(zoneWorks, !allSelected);
   render();
 }
 function goToActPreview() {
@@ -1978,6 +1989,19 @@ function saveAct() {
 function viewAct(id) {
   state.modal = { type: "actView", id };
   render();
+}
+function deleteAct(id) {
+  const o = getObj(); if (!o) return;
+  const act = (o.acts || []).find(a => a.id === id); if (!act) return;
+  (act.entries || []).forEach(e => {
+    const room = o.rooms.find(r => r.id === e.roomId);
+    const work = room && (room.works || []).find(w => w.id === e.workId);
+    if (work && work.actId === id) work.actId = null;
+  });
+  o.acts = (o.acts || []).filter(a => a.id !== id);
+  o.updatedAt = Date.now();
+  saveData();
+  closeModal();
 }
 
 /* ---------- Notes (Нотатки, у стилі Apple Notes) ---------- */
@@ -6585,8 +6609,10 @@ function renderModal() {
     };
     const zoneBlocks = zones.map(z => {
       const zRooms = o.rooms.filter(r => z.roomIds.includes(r.id));
+      const zoneWorks = zRooms.flatMap(r => r.works || []).filter(w => !w.actId);
+      const allSelected = zoneWorks.length > 0 && zoneWorks.every(w => selected[w.id]);
       const inner = zRooms.map(roomBlockHtml).join("");
-      return inner ? `<div class="group-label" style="color:var(--amber);margin-top:18px;">${esc(z.name)}</div>${inner}` : "";
+      return inner ? `<div class="group-label" style="color:var(--amber);margin-top:18px;display:flex;align-items:center;justify-content:space-between;"><span>${esc(z.name)}</span><label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer;text-transform:none;letter-spacing:normal;font-size:11.5px;color:var(--text);"><input type="checkbox" style="width:16px;height:16px;" ${allSelected?"checked":""} onchange="toggleActZoneSelectAll('${z.id}')"> Обрати всю зону</label></div>${inner}` : "";
     }).join("");
     const unzonedBlock = unzonedRooms.map(roomBlockHtml).join("");
     body = `
@@ -6733,6 +6759,7 @@ function renderModal() {
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Закрити</button>
+      <button class="ghost-btn" onclick="deleteAct('${act ? act.id : ""}')" ${act ? "" : "disabled"}>Видалити</button>
       <button class="amber-btn" onclick="sharePrintReport()">📤 Поділитися</button>
     </div>`;
   }
