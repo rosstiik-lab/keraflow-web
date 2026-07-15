@@ -2173,12 +2173,23 @@ function createPriceUnit(name) {
   if (!state.data.priceUnits.includes(n)) state.data.priceUnits.push(n);
   saveData(); render();
 }
+function renamePriceUnit(oldUnit, newUnit) {
+  const n = (newUnit||"").trim(); if (!n || n === oldUnit) { closeModal(); return; }
+  (state.data.priceItems || []).forEach(p => { if (p.unit === oldUnit) p.unit = n; });
+  (state.data.objects || []).forEach(o => (o.rooms || []).forEach(r => (r.works || []).forEach(w => { if (w.unit === oldUnit) w.unit = n; })));
+  state.data.priceUnits = (state.data.priceUnits || []).filter(u => u !== oldUnit);
+  if (!state.data.priceUnits.includes(n)) state.data.priceUnits.push(n);
+  saveData(); closeModal();
+}
 function deletePriceUnit(unit) {
   const linkedItems = (state.data.priceItems || []).filter(p => p.unit === unit);
-  if (linkedItems.length) {
+  const linkedWorks = (state.data.objects || []).flatMap(o => (o.rooms || []).flatMap(r => (r.works || []).filter(w => w.unit === unit).map(w => ({ object: o, work: w }))));
+  if (linkedItems.length || linkedWorks.length) {
+    const itemText = linkedItems.length ? `позиціями прайсу: ${linkedItems.map(p => `«${p.name}»`).join(", ")}` : "";
+    const workText = linkedWorks.length ? `роботами на обʼєктах: ${linkedWorks.map(x => `«${x.work.name}» (${x.object.name})`).join(", ")}` : "";
     state.modal = { type: "blockedDelete",
       title: "Неможливо видалити одиницю виміру",
-      message: `Ця одиниця виміру використовується позиціями прайсу: ${linkedItems.map(p => `«${p.name}»`).join(", ")}. Спершу змініть або видаліть ці позиції.`,
+      message: `Ця одиниця виміру використовується ${[itemText, workText].filter(Boolean).join(" та ")}. Спершу змініть або видаліть ці записи.`,
     };
     render();
     return;
@@ -6051,6 +6062,7 @@ function renderModal() {
       ${units.map(u => `
         <div class="work-row" style="padding:8px 12px;margin-bottom:6px;">
           <div class="mono" style="flex:1">${esc(u)}</div>
+          <button class="ghost-btn" onclick="openModal('priceUnit','${esc(u)}')">Редагувати</button>
           <button class="w-del" title="Видалити" onclick="deletePriceUnit('${esc(u)}')">✕</button>
         </div>
       `).join("") || `<div class="empty-slot">Ще немає жодної одиниці.</div>`}
@@ -6059,6 +6071,17 @@ function renderModal() {
     <div class="modal-actions">
       <button class="ghost-btn" onclick="closeModal()">Закрити</button>
       <button class="amber-btn" onclick="submitPriceUnit()">Додати</button>
+    </div>`;
+  }
+
+  if (t === "priceUnit") {
+    const editingUnit = state.modal.id || "";
+    body = `
+    <h3>Редагувати одиницю виміру</h3>
+    <div class="field"><label>Назва одиниці</label><input id="m-newunit" placeholder="Напр. компл." value="${esc(editingUnit)}"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="openModal('priceUnits')">Назад</button>
+      <button class="amber-btn" onclick="submitPriceUnit()">Зберегти</button>
     </div>`;
   }
   if (t === "clientPriceOverride") {
@@ -7869,7 +7892,11 @@ function submitPriceCategory() {
   const editingName = state.modal && state.modal.id;
   if (editingName) renamePriceCategory(editingName, n); else createPriceCategory(n);
 }
-function submitPriceUnit() { const n = val("m-newunit"); if (!n) return; createPriceUnit(n); }
+function submitPriceUnit() {
+  const n = val("m-newunit"); if (!n) return;
+  const editingUnit = state.modal && state.modal.type === "priceUnit" ? state.modal.id : null;
+  if (editingUnit) renamePriceUnit(editingUnit, n); else createPriceUnit(n);
+}
 function submitNotebookCategory() { const n = val("m-name"); if (!n) return; createNotebookCategory(n); }
 function handleClientSelectChange(value) {
   if (value !== "__new__") return;
@@ -7973,7 +8000,7 @@ Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, openSignOutCo
   submitMaterialItem, submitMaterialPayment, submitAdvance,
   setMaterialItemType, setMaterialPaymentType, handleReceiptPhotoChange, toggleFeedReport,
   deleteRoom, moveRoomToZone, deleteZone, setPriceSearch,
-  submitPriceCategory, submitPriceUnit, deletePriceUnit,
+  submitPriceCategory, submitPriceUnit, renamePriceUnit, deletePriceUnit,
   setWorkSearchQuery, openWorkSearchDropdown, pickWorkPriceItem, setSupabaseWorkSearchQuery, openSupabaseWorkSearchDropdown, pickSupabaseWorkPriceItem,
   openMaterialsReportPreview, saveMaterialsReport, viewMaterialReport,
   openActSelect, toggleActWorkSelect, toggleActRoomSelectAll, goToActPreview, backToActSelect, saveAct, viewAct, openSupabaseProposalModal, openSupabaseProposalPreview, printSupabaseProposal, setSupabaseProposalSearch, toggleSupabaseProposalItem, setSupabaseProposalItemField, saveSupabaseProposal });
