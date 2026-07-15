@@ -1555,9 +1555,9 @@ function roomProgress(room) {
   return Math.round(room.works.filter(w => w.done).length / room.works.length * 100);
 }
 function objectProgress(obj) {
-  if (!obj.rooms.length) return 0;
-  const v = obj.rooms.map(roomProgress);
-  return Math.round(v.reduce((a,b)=>a+b,0) / v.length);
+  const works = obj.rooms.flatMap(r => r.works || []);
+  if (!works.length) return 0;
+  return Math.round(works.filter(w => w.done).length / works.length * 100);
 }
 function getObj() { return state.data.objects.find(o => o.id === state.selectedObjId) || null; }
 function getRoom() { const o = getObj(); return o?.rooms.find(r => r.id === state.selectedRoomId) || null; }
