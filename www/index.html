@@ -829,6 +829,8 @@ let state = {
   selectedRoomId: null,
   selectedZoneId: null,
   selectedClientId: null,
+  clientSearch: "",
+  clientSort: "name-asc",
   quick: "Робота",
   objSearch: "",
   priceSearch: "",
@@ -1607,6 +1609,8 @@ function setQuick(q) {
   render();
 }
 function selectClient(id) { state.selectedClientId = id; render(); }
+function setClientSearch(q) { state.clientSearch = q; render(); }
+function setClientSort(sort) { state.clientSort = sort; render(); }
 function openModal(type, id) { state.modal = { type, id: id || null }; render(); }
 function closeModal() {
   if (state.modal && state.modal.type === "worker") state.workerPhotoProcessing = false;
@@ -3726,14 +3730,27 @@ function notebookEntryCardHtml(e) {
 }
 
 function renderClients() {
-  const clients = state.data.clients || [];
+  const allClients = state.data.clients || [];
+  const query = (state.clientSearch || "").trim().toLowerCase();
+  const clients = allClients
+    .filter(c => !query || [c.name, c.phone, c.address, c.note].some(v => String(v || "").toLowerCase().includes(query)))
+    .slice()
+    .sort((a,b) => {
+      const dir = state.clientSort === "name-desc" ? -1 : 1;
+      return String(a.name || "").localeCompare(String(b.name || ""), "uk") * dir;
+    });
   return `<div class="cols">
     <div class="panel">
       <div class="panel-head">
         <div><div class="eyebrow">Контакти</div><div class="h1">Замовники</div></div>
-        <div class="count-badge">${clients.length}</div>
+        <div class="count-badge">${clients.length}/${allClients.length}</div>
       </div>
-      ${clients.map(c => clientRowHtml(c)).join("") || `<div class="empty-slot">Ще немає жодного замовника.</div>`}
+      <div class="field"><label>Пошук</label><input placeholder="Ім'я, телефон, адреса або примітка" value="${esc(state.clientSearch || "")}" oninput="setClientSearch(this.value)"></div>
+      <div class="field"><label>Сортування</label><select onchange="setClientSort(this.value)">
+        <option value="name-asc" ${state.clientSort !== "name-desc" ? "selected" : ""}>Ім'я: А → Я</option>
+        <option value="name-desc" ${state.clientSort === "name-desc" ? "selected" : ""}>Ім'я: Я → А</option>
+      </select></div>
+      ${clients.map(c => clientRowHtml(c)).join("") || `<div class="empty-slot">${allClients.length ? "За пошуком нічого не знайдено." : "Ще немає жодного замовника."}</div>`}
       <button class="dashed-btn" onclick="openModal('client')">+ Новий замовник</button>
     </div>
     <div>${renderClientDetail()}</div>
@@ -7993,7 +8010,7 @@ function submitAdvance() {
 /* expose to inline handlers */
 Object.assign(window, { signInWithEmail, signUpWithEmail, signOut, openSignOutConfirm, checkLocalDataForSupabase, checkSupabaseCloudData, exportSupabaseCloudBackup, importBasicLocalDataToSupabase, importLocalPriceToSupabase, setNav, selectObject, selectRoom, selectZone, setQuick, openModal, closeModal,
   toggleWork, toggleSupabaseWorkDone, deleteSupabaseWork, deleteSupabaseObject, deleteSupabaseRoom, submitSupabaseNewClient, submitSupabaseClientEdit, deleteSupabaseClient, submitSupabaseObjectEdit, submitSupabaseNewObject, submitSupabaseRoomEdit, submitSupabaseNewRoom, submitSupabaseWorkEdit, submitSupabaseNewWork, submitSupabaseNewPriceItem: submitSupabasePriceItem, submitSupabasePriceItem, deleteSupabasePriceItem, submitSupabaseNewPriceCategory, submitSupabasePriceCategoryEdit, deleteSupabasePriceCategory, submitSupabaseNewPriceUnit, submitSupabasePriceUnitEdit, deleteSupabasePriceUnit, deleteWork, submitObject, submitRoom, submitZone, submitWork,
-  deletePriceItem, submitPrice, deleteClient, submitClient, selectClient, setClientPriceSearch, openClientPriceOverrideModal, submitClientPriceOverride, resetClientPriceOverride, resetClientPriceOverrideFor,
+  deletePriceItem, submitPrice, deleteClient, submitClient, selectClient, setClientSearch, setClientSort, setClientPriceSearch, openClientPriceOverrideModal, submitClientPriceOverride, resetClientPriceOverride, resetClientPriceOverrideFor,
   setObjSearch, toggleGroup, toggleActionMenu,
   closeActionMenu, setObjectStatus, toggleArchiveObject, deleteObject, handleClientSelectChange,
   deleteMaterialItem, deleteAdvance,
